@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 1 — foundational provenance model.
+Phase 2A — OpenAlex academic paper discovery, verified.
 
 ## Implemented
 
@@ -12,11 +12,14 @@ Phase 1 — foundational provenance model.
 - SQLite foreign-key enforcement on every connection.
 - Initial Alembic migration.
 - Focused schema and persistence tests.
+- OpenAlex `/works` client with bearer authentication, timeouts, local pacing, bounded retries, and in-memory response caching.
+- Normalisation for titles, authors, DOI, year, reconstructed abstracts, landing pages, and open-access metadata.
+- Stable-ID and conservative title/year deduplication, explainable lexical relevance screening, and idempotent persistence into research jobs.
+- Alembic migration `20261123_0002` for the narrowly required `papers.open_access_metadata` column.
 
 ## Not implemented
 
-- Live academic retrieval and OpenAlex integration.
-- Deduplication, relevance screening, downloading, or PDF extraction.
+- PDF downloading or extraction.
 - Ollama, claim extraction, semantic verification, or gap detection.
 - ChromaDB, LangGraph, FastAPI endpoints, React UI, and background services.
 
@@ -30,6 +33,8 @@ Verified on 2026-11-23 with native Windows Python 3.12.4 at `C:\Users\Sathvik Ka
 - Alembic reports `20261123_0001 (head)` from the repository root after path verification.
 - Schema inspection confirmed all expected tables, declared foreign keys, and uniqueness rules for DOI, OpenAlex ID, and the research-job/paper pair.
 - The application database engine enables SQLite foreign-key enforcement and rejected a deliberately invalid foreign-key insert.
+- Full Phase 1 and Phase 2A suite: `10 passed` in 0.56 seconds on the final run.
+- OpenAlex live search for `AI-based fake news detection on social media`, limited to 10 results: 10 normalised, 0 malformed, 0 duplicates, 10 new papers, and 10 new job-paper associations. Rerunning it created 0 additional paper or association rows.
 
 No model, paper, server, or background service was started.
 
@@ -41,6 +46,12 @@ Alembic configuration now resolves both its import path and SQLite database path
 
 An unintended root-level `blindspot.db` briefly created while validating the earlier relative URL was removed. The verified database is `backend/blindspot.db`.
 
+## Known limitations
+
+- The response cache is process-local and expires after five minutes; it is intentionally not a new database table.
+- Relevance scoring is deterministic lexical term coverage, not semantic relevance judgement.
+- OpenAlex metadata is discovery evidence only; no abstract is treated as full-text evidence.
+
 ## Next approved task
 
-After Python setup and successful Phase 1 test execution, implement the OpenAlex retrieval adapter and local, testable metadata normalisation only after explicit approval.
+Do not proceed to additional scholarly APIs, PDF retrieval/extraction, or AI analysis without explicit approval.

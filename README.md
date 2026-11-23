@@ -6,6 +6,8 @@ Blindspot is a local-first, evidence-grounded research assistant for discovering
 
 Phase 1 foundations are implemented in source form: the repository documentation, Pydantic data contracts, SQLAlchemy persistence model, Alembic initial migration, and focused tests. No retrieval, document downloading, PDF extraction, AI model integration, frontend, background worker, or research-paper download is included.
 
+Phase 2A adds OpenAlex metadata discovery only. It does not download or analyse full text.
+
 ## Planned stack
 
 - Python, FastAPI, Pydantic
@@ -27,5 +29,9 @@ alembic -c backend\alembic.ini upgrade head
 ```
 
 The migration creates a local SQLite database at `backend/blindspot.db` by default. Generated data belongs under `data/` and is ignored by Git.
+
+## OpenAlex configuration
+
+Create a project-root `.env` file containing `OPENALEX_API_KEY`. The file is ignored by Git. Blindspot loads it with `python-dotenv` and sends it only as an OpenAlex bearer-authentication header; it is never placed in request URLs or application logs.
 
 See [the architecture](docs/ARCHITECTURE.md), [project status](docs/PROJECT_STATUS.md), and [evaluation plan](docs/EVALUATION_PLAN.md).

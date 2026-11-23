@@ -91,6 +91,7 @@ class PaperCreate(SchemaBase):
     abstract: Optional[str] = None
     venue: Optional[str] = Field(default=None, max_length=512)
     landing_page_url: Optional[HttpUrl] = None
+    open_access_metadata: dict = Field(default_factory=dict)
     related_version_id: Optional[str] = None
 
     @field_validator("title")

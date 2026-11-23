@@ -52,6 +52,7 @@ class Paper(Timestamped, Base):
     abstract: Mapped[Optional[str]] = mapped_column(Text)
     venue: Mapped[Optional[str]] = mapped_column(String(512))
     landing_page_url: Mapped[Optional[str]] = mapped_column(Text)
+    open_access_metadata: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     related_version_id: Mapped[Optional[str]] = mapped_column(ForeignKey("papers.id", ondelete="SET NULL"))
     related_version: Mapped[Optional["Paper"]] = relationship(remote_side="Paper.id", back_populates="version_children")
     version_children: Mapped[list["Paper"]] = relationship(back_populates="related_version")

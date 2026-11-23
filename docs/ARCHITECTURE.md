@@ -1,8 +1,14 @@
 # Architecture
 
-## Phase 1 scope
+## Implemented scope
 
-Phase 1 establishes a durable provenance model only. It has no live API calls, PDF processing, LLM calls, semantic database, orchestration graph, frontend, or worker process.
+Phase 1 establishes the durable provenance model. Phase 2A adds an OpenAlex `/works` adapter for metadata discovery. There is still no PDF processing, LLM call, semantic database, orchestration graph, frontend, or worker process.
+
+## OpenAlex discovery adapter
+
+`OpenAlexClient` loads its key from the project-root `.env` and sends it exclusively in the `Authorization: Bearer` header. It applies a 15-second timeout, a 25-request-per-second local pacing limit, bounded retries (three retries), `Retry-After` handling for `429`, and a five-minute in-memory response cache.
+
+`OpenAlexDiscoveryService` normalises `/works` records, reconstructs inverted-index abstracts, keeps open-access metadata, removes duplicates by OpenAlex ID or DOI, and uses an intentionally conservative same-normalised-title-and-year fallback. It assigns a transparent lexical relevance score based on matched meaningful topic terms and persists new records idempotently through `ResearchJobPaper`.
 
 ## System of record
 
