@@ -1,0 +1,30 @@
+[
+  {
+    "id": "W-direct-transformer",
+    "title": "Transformer fake news detection on social media",
+    "abstract": "A deep learning misinformation classification approach.",
+    "publication_type": "article",
+    "judgment": "clearly_relevant"
+  },
+  {
+    "id": "W-direct-review",
+    "title": "A survey of fake news detection on social media",
+    "abstract": null,
+    "publication_type": "review",
+    "judgment": "clearly_relevant_contextual"
+  },
+  {
+    "id": "W-adjacent-covid",
+    "title": "COVID-19 misinformation classification with neural networks",
+    "abstract": "Social media posts are classified.",
+    "publication_type": "article",
+    "judgment": "partially_relevant"
+  },
+  {
+    "id": "W-irrelevant",
+    "title": "Soil moisture forecasting for agriculture",
+    "abstract": "Crop yield prediction from weather data.",
+    "publication_type": "article",
+    "judgment": "irrelevant"
+  }
+]

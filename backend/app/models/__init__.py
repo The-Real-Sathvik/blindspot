@@ -3,13 +3,16 @@ from app.models.research import (
     EvidenceChunk,
     ExtractedClaim,
     Paper,
+    PaperExternalIdentifier,
     ResearchJob,
     ResearchJobPaper,
     SourceDocument,
+    SearchResult,
+    SearchRun,
     VerificationResult,
 )
 
 __all__ = [
-    "ClaimEvidence", "EvidenceChunk", "ExtractedClaim", "Paper", "ResearchJob",
-    "ResearchJobPaper", "SourceDocument", "VerificationResult",
+    "ClaimEvidence", "EvidenceChunk", "ExtractedClaim", "Paper", "PaperExternalIdentifier",
+    "ResearchJob", "ResearchJobPaper", "SearchResult", "SearchRun", "SourceDocument", "VerificationResult",
 ]

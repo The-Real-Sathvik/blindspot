@@ -47,6 +47,7 @@ class NormalizedWork:
     abstract: Optional[str]
     landing_page_url: Optional[str]
     open_access_metadata: dict[str, Any]
+    publication_type: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -221,6 +222,7 @@ def normalize_work(raw_work: Mapping[str, Any]) -> Optional[NormalizedWork]:
         abstract=_reconstruct_abstract(raw_work.get("abstract_inverted_index")),
         landing_page_url=landing_page_url,
         open_access_metadata=open_access_metadata,
+        publication_type=_clean_optional_string(raw_work.get("type")),
     )
 
 
@@ -287,6 +289,8 @@ class OpenAlexDiscoveryService:
                     abstract=work.abstract,
                     landing_page_url=work.landing_page_url,
                     open_access_metadata=work.open_access_metadata,
+                    publication_type=work.publication_type,
+                    publication_type_source="openalex" if work.publication_type else None,
                 )
                 session.add(paper)
                 session.flush()

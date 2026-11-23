@@ -2,56 +2,50 @@
 
 ## Current phase
 
-Phase 2A — OpenAlex academic paper discovery, verified.
+Phase 4A — local Ollama integration, benchmark safely deferred.
 
 ## Implemented
 
-- Repository guidance and Git ignore rules.
-- Pydantic schemas for research jobs, papers, documents, evidence, claims, claim evidence, and verification results.
-- SQLAlchemy 2.x models with foreign keys, uniqueness checks, and relationship mappings.
-- SQLite foreign-key enforcement on every connection.
-- Initial Alembic migration.
-- Focused schema and persistence tests.
-- OpenAlex `/works` client with bearer authentication, timeouts, local pacing, bounded retries, and in-memory response caching.
-- Normalisation for titles, authors, DOI, year, reconstructed abstracts, landing pages, and open-access metadata.
-- Stable-ID and conservative title/year deduplication, explainable lexical relevance screening, and idempotent persistence into research jobs.
-- Alembic migration `20261123_0002` for the narrowly required `papers.open_access_metadata` column.
-
-## Not implemented
-
-- PDF downloading or extraction.
-- Ollama, claim extraction, semantic verification, or gap detection.
-- ChromaDB, LangGraph, FastAPI endpoints, React UI, and background services.
+- Provenance-first SQLite schema with paper metadata, evidence records, and job-paper decisions.
+- OpenAlex `/works` discovery with bearer authentication, timeouts, retry handling, local pacing, and in-memory caching.
+- OpenAlex metadata normalisation, stable-ID/title-year deduplication, and open-access metadata persistence.
+- Deterministic 3–5 query expansion, transparent title/abstract/synonym relevance ranking, and configurable 3–5 paper shortlist selection.
+- Source-independent `ScholarlySource` contract plus `paper_external_identifiers` for future adapters without DOI assumptions.
+- Search provenance persistence through `search_runs` and `search_results`.
+- Additive migration `20261123_0004` for source publication type and separate discovery-metadata completeness fields.
+- Separate shortlist-suitability layer with directness labels, heuristic review/survey provenance, tie-level context diversity, and deterministic selection.
+- arXiv Atom API client with sequential pacing, bounded retries, namespace-safe parsing, and compact source metadata.
+- Additive migration `20261123_0005` for source metadata and validated cross-source match provenance.
+- Sequential safe PDF acquisition, PyMuPDF page-level extraction, and deterministic page-linked evidence chunking.
+- Local Ollama structured-output client with fixed 4096-token context, bounded output, process-wide sequential lock, and mock-tested error handling.
 
 ## Verification status
 
-Verified on 2026-11-23 with native Windows Python 3.12.4 at `C:\Users\Sathvik Karumoju\AppData\Local\Programs\Python\Python312\python.exe`. The project virtual environment is `D:\Blindspot\.venv`.
+- Native Windows Python 3.12.4 with `D:\Blindspot\.venv`.
+- Alembic migrations through `20261123_0003` are applied to `backend/blindspot.db`.
+- Full Phase 1 through Phase 4A mock suite: `28 passed` in 0.53 seconds on the final run.
+- Phase 2B live OpenAlex smoke test used five deterministic queries with six results each, capped at 30 records. It recorded five search runs and 30 search results, created 24 new papers, and selected five shortlist candidates. Six returned works were already present from Phase 2A.
+- Phase 2B.1 re-evaluated the cached 30-record job without an API request. The five selected papers remained members of the shortlist; ordering and reasons now distinguish unknown roles, review/survey hints, unverified metadata hints, and metadata availability.
+- Phase 2C live arXiv query retrieved eight records. All eight were new in this bounded sample; cached OpenAlex metadata was attached locally to form a combined shortlist without another OpenAlex request.
+- Phase 3 live demonstration downloaded and processed one public arXiv PDF: 20 pages, 50,972 extracted characters, and 55 page-linked evidence chunks.
+- Ollama 0.40.16 and `llama3.1:8b-instruct-q4_K_M` are installed locally; actual metadata confirms Llama 3.1 8.0B and Q4_K_M. The live benchmark was not run because only 4,261.4 MB physical RAM was available before inference.
 
-- Installed only the declared Phase 1 packages: SQLAlchemy 2.0.58, Alembic 1.20.1, Pydantic 2.14.4, and pytest 8.4.2 (plus their transitive dependencies).
-- Pytest: `5 passed` in 0.16 seconds on the final run.
-- Alembic initial migration `20261123_0001` applied successfully to `backend/blindspot.db`.
-- Alembic reports `20261123_0001 (head)` from the repository root after path verification.
-- Schema inspection confirmed all expected tables, declared foreign keys, and uniqueness rules for DOI, OpenAlex ID, and the research-job/paper pair.
-- The application database engine enables SQLite foreign-key enforcement and rejected a deliberately invalid foreign-key insert.
-- Full Phase 1 and Phase 2A suite: `10 passed` in 0.56 seconds on the final run.
-- OpenAlex live search for `AI-based fake news detection on social media`, limited to 10 results: 10 normalised, 0 malformed, 0 duplicates, 10 new papers, and 10 new job-paper associations. Rerunning it created 0 additional paper or association rows.
+## Not implemented
 
-No model, paper, server, or background service was started.
-
-## Resolved issue
-
-The Python installation is available by its direct user-local executable but is not registered with the `py` launcher or the `python` command in this terminal. Project commands use `.venv\Scripts\python.exe` after environment creation.
-
-Alembic configuration now resolves both its import path and SQLite database path relative to `backend/alembic.ini`, so root-level commands such as `python -m alembic -c backend\alembic.ini current` target `backend/blindspot.db` correctly.
-
-An unintended root-level `blindspot.db` briefly created while validating the earlier relative URL was removed. The verified database is `backend/blindspot.db`.
+- arXiv or Semantic Scholar retrieval.
+- PDF downloading, extraction, or full-text analysis.
+- Ollama, claim extraction, verification, gap detection, ChromaDB, LangGraph, frontend, and background workers.
 
 ## Known limitations
 
-- The response cache is process-local and expires after five minutes; it is intentionally not a new database table.
-- Relevance scoring is deterministic lexical term coverage, not semantic relevance judgement.
-- OpenAlex metadata is discovery evidence only; no abstract is treated as full-text evidence.
+- Ranking is deterministic lexical concept coverage, not semantic relevance or study-quality assessment.
+- The response cache is process-local and expires after five minutes.
+- OpenAlex metadata and abstracts are discovery records, not full-text evidence.
+- Publication role hints, method hints, and context hints are screening metadata only; they are not verified claims about study design, datasets, or findings.
+- A title-and-author potential duplicate is flagged ambiguous rather than merged; this can leave true preprint/publication pairs separate until stable metadata supports a relationship.
+- Multi-column reading order remains dependent on the source PDF text layer; scanned PDFs are recorded as extraction failures because OCR is deliberately out of scope.
+- CPU-only Llama 3.1 8B inference needs more headroom than was available during Phase 4A. No runtime, token-rate, JSON, or quotation result is claimed until a safe benchmark runs.
 
 ## Next approved task
 
-Do not proceed to additional scholarly APIs, PDF retrieval/extraction, or AI analysis without explicit approval.
+Stop at Phase 4A. Do not implement Claim Extraction Agent work until a safe benchmark is reviewed and approved.

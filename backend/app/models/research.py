@@ -12,6 +12,7 @@ from app.schemas.research import (
     DocumentStatus,
     JobPaperStatus,
     JobStatus,
+    MatchStatus,
     SemanticSupportStatus,
 )
 
@@ -33,6 +34,7 @@ class ResearchJob(Timestamped, Base):
     status: Mapped[JobStatus] = mapped_column(Enum(JobStatus, native_enum=False), default=JobStatus.PENDING, nullable=False)
     error_info: Mapped[Optional[str]] = mapped_column(Text)
     papers: Mapped[list["ResearchJobPaper"]] = relationship(back_populates="research_job", cascade="all, delete-orphan")
+    search_runs: Mapped[list["SearchRun"]] = relationship(back_populates="research_job", cascade="all, delete-orphan")
 
 
 class Paper(Timestamped, Base):
@@ -53,12 +55,15 @@ class Paper(Timestamped, Base):
     venue: Mapped[Optional[str]] = mapped_column(String(512))
     landing_page_url: Mapped[Optional[str]] = mapped_column(Text)
     open_access_metadata: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    publication_type: Mapped[Optional[str]] = mapped_column(String(128))
+    publication_type_source: Mapped[Optional[str]] = mapped_column(String(64))
     related_version_id: Mapped[Optional[str]] = mapped_column(ForeignKey("papers.id", ondelete="SET NULL"))
     related_version: Mapped[Optional["Paper"]] = relationship(remote_side="Paper.id", back_populates="version_children")
     version_children: Mapped[list["Paper"]] = relationship(back_populates="related_version")
     research_jobs: Mapped[list["ResearchJobPaper"]] = relationship(back_populates="paper", cascade="all, delete-orphan")
     source_documents: Mapped[list["SourceDocument"]] = relationship(back_populates="paper", cascade="all, delete-orphan")
     extracted_claims: Mapped[list["ExtractedClaim"]] = relationship(back_populates="paper", cascade="all, delete-orphan")
+    external_identifiers: Mapped[list["PaperExternalIdentifier"]] = relationship(back_populates="paper", cascade="all, delete-orphan")
 
 
 class ResearchJobPaper(Timestamped, Base):
@@ -75,6 +80,59 @@ class ResearchJobPaper(Timestamped, Base):
     error_info: Mapped[Optional[str]] = mapped_column(Text)
     research_job: Mapped["ResearchJob"] = relationship(back_populates="papers")
     paper: Mapped["Paper"] = relationship(back_populates="research_jobs")
+
+
+class PaperExternalIdentifier(Timestamped, Base):
+    __tablename__ = "paper_external_identifiers"
+    __table_args__ = (UniqueConstraint("source_name", "identifier", name="uq_source_identifier"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    paper_id: Mapped[str] = mapped_column(ForeignKey("papers.id", ondelete="CASCADE"), nullable=False)
+    source_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    identifier: Mapped[str] = mapped_column(String(512), nullable=False)
+    source_metadata: Mapped[Optional[dict]] = mapped_column(JSON)
+    paper: Mapped["Paper"] = relationship(back_populates="external_identifiers")
+
+
+class SearchRun(Timestamped, Base):
+    __tablename__ = "search_runs"
+    __table_args__ = (CheckConstraint("requested_limit >= 1", name="ck_search_run_limit_positive"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    research_job_id: Mapped[str] = mapped_column(ForeignKey("research_jobs.id", ondelete="CASCADE"), nullable=False)
+    source_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    query_text: Mapped[str] = mapped_column(Text, nullable=False)
+    requested_limit: Mapped[int] = mapped_column(Integer, nullable=False)
+    retrieved_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error_info: Mapped[Optional[str]] = mapped_column(Text)
+    research_job: Mapped["ResearchJob"] = relationship(back_populates="search_runs")
+    results: Mapped[list["SearchResult"]] = relationship(back_populates="search_run", cascade="all, delete-orphan")
+
+
+class SearchResult(Timestamped, Base):
+    __tablename__ = "search_results"
+    __table_args__ = (
+        UniqueConstraint("search_run_id", "source_record_id", name="uq_search_run_record"),
+        CheckConstraint("source_rank >= 1", name="ck_search_result_rank_positive"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    search_run_id: Mapped[str] = mapped_column(ForeignKey("search_runs.id", ondelete="CASCADE"), nullable=False)
+    paper_id: Mapped[Optional[str]] = mapped_column(ForeignKey("papers.id", ondelete="SET NULL"))
+    source_record_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    source_rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    relevance_score: Mapped[Optional[float]] = mapped_column(Float)
+    selection_reason: Mapped[Optional[str]] = mapped_column(Text)
+    included: Mapped[Optional[bool]] = mapped_column(Boolean)
+    full_text_url: Mapped[Optional[str]] = mapped_column(Text)
+    full_text_available: Mapped[Optional[bool]] = mapped_column(Boolean)
+    has_abstract: Mapped[Optional[bool]] = mapped_column(Boolean)
+    has_landing_page: Mapped[Optional[bool]] = mapped_column(Boolean)
+    metadata_completeness: Mapped[Optional[float]] = mapped_column(Float)
+    match_status: Mapped[Optional[MatchStatus]] = mapped_column(Enum(MatchStatus, native_enum=False, values_callable=lambda enum: [item.value for item in enum]), nullable=True)
+    match_reason: Mapped[Optional[str]] = mapped_column(Text)
+    search_run: Mapped["SearchRun"] = relationship(back_populates="results")
+    paper: Mapped[Optional["Paper"]] = relationship()
 
 
 class SourceDocument(Timestamped, Base):

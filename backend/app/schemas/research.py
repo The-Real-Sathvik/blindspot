@@ -45,6 +45,16 @@ class SemanticSupportStatus(str, Enum):
     INSUFFICIENT_EVIDENCE = "insufficient_evidence"
 
 
+class MatchStatus(str, Enum):
+    NEW = "new"
+    MATCHED_DOI = "matched_doi"
+    MATCHED_ARXIV_ID = "matched_arxiv_id"
+    MATCHED_TITLE_AUTHOR = "matched_title_author"
+    AMBIGUOUS = "ambiguous"
+    UNRESOLVED = "unresolved"
+    NOT_CHECKED = "not_checked"
+
+
 class ClaimType(str, Enum):
     RESEARCH_PROBLEM = "research_problem"
     OBJECTIVE = "objective"
@@ -92,6 +102,8 @@ class PaperCreate(SchemaBase):
     venue: Optional[str] = Field(default=None, max_length=512)
     landing_page_url: Optional[HttpUrl] = None
     open_access_metadata: dict = Field(default_factory=dict)
+    publication_type: Optional[str] = Field(default=None, max_length=128)
+    publication_type_source: Optional[str] = Field(default=None, max_length=64)
     related_version_id: Optional[str] = None
 
     @field_validator("title")
