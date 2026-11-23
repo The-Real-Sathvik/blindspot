@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+
+# Local configuration and databases
+.env
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated research artefacts (retain directory placeholders only)
+data/source_documents/*
+!data/source_documents/.gitkeep
+data/extracted_text/*
+!data/extracted_text/.gitkeep
+data/reports/*
+!data/reports/.gitkeep
+
+# Editor and OS files
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
