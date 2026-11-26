@@ -1,0 +1,314 @@
+{
+  "dataset_version": "phase-4b-3a-v2",
+  "base_dataset": "claim_extraction_reference_annotations.json",
+  "changes": [
+    {
+      "annotation_id": "numeric-social-media-engagement",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "chunk_quote_start_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Clarifies cited-statistic attribution and preserves all three percentages."
+    },
+    {
+      "annotation_id": "objective-comprehensive-review",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "chunk_quote_start_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Uses the complete objective statement."
+    },
+    {
+      "annotation_id": "limitation-specific-manipulations",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Completes the stated limitation."
+    },
+    {
+      "annotation_id": "hettransformer-novel-model",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "chunk_quote_start_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Names the introduced model and task."
+    },
+    {
+      "annotation_id": "hettransformer-three-datasets",
+      "changed_fields": [
+        "claim_category",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Changes experiment-scope label from result to methodology."
+    },
+    {
+      "annotation_id": "hettransformer-prior-method-limitation",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "chunk_quote_start_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Completes the prior-method limitation."
+    },
+    {
+      "annotation_id": "hettransformer-model-method",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "chunk_quote_start_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Uses a complete proposal statement."
+    },
+    {
+      "annotation_id": "hettransformer-experiment-method",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Completes stated experimental scope."
+    },
+    {
+      "annotation_id": "hettransformer-superior-performance",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "chunk_quote_start_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Retains model and comparison context."
+    },
+    {
+      "annotation_id": "hettransformer-generalizability-limitation",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "chunk_quote_start_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Completes cause and limitation."
+    },
+    {
+      "annotation_id": "covid-methodology-objective",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "chunk_quote_start_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Uses the complete methodology statement."
+    },
+    {
+      "annotation_id": "covid-architecture-objective",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Completes the stated architecture objective."
+    },
+    {
+      "annotation_id": "covid-dataset-size",
+      "changed_fields": [
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 unchanged scientific label; page-relative offsets added and numerical quantity clarified."
+    },
+    {
+      "annotation_id": "covid-ensemble-method",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Completes the ensemble calculation description."
+    },
+    {
+      "annotation_id": "covid-ensemble-accuracy",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "chunk_quote_start_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Corrects the unspecified value to accuracy and preserves the distinct F1 value."
+    },
+    {
+      "annotation_id": "covid-best-f1",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "chunk_quote_start_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation"
+      ],
+      "reason": "v2 correction candidate: Uses the complete F1 result sentence."
+    },
+    {
+      "annotation_id": "covid-future-contextual-embeddings",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "chunk_quote_start_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Completes the explicit future-work statement."
+    },
+    {
+      "annotation_id": "mining-synthetic-text-problem",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Replaces an insufficient fragment with the complete problem statement."
+    },
+    {
+      "annotation_id": "mining-trifn-accuracy",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "chunk_quote_start_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Preserves metric, task, and cited-work context."
+    },
+    {
+      "annotation_id": "mining-defend-performance",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "chunk_quote_start_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Adds the reported accuracy and F1 values."
+    },
+    {
+      "annotation_id": "mining-labeled-data-limitation",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Completes the limitation statement."
+    },
+    {
+      "annotation_id": "mining-future-directions",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Preserves explicit future-direction framing."
+    },
+    {
+      "annotation_id": "mining-cross-topic-limitation",
+      "changed_fields": [
+        "chunk_quote_end_offset",
+        "chunk_quote_start_offset",
+        "expected_claim_meaning",
+        "page_quote_end_offset",
+        "page_quote_start_offset",
+        "review_note",
+        "supporting_quotation",
+        "uncertainty_or_missing_information"
+      ],
+      "reason": "v2 correction candidate: Completes cause and scope of the limitation."
+    }
+  ]
+}

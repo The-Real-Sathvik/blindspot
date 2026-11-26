@@ -1,0 +1,20 @@
+from pathlib import Path
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import create_engine, inspect, text
+
+
+def test_attempt_migration_round_trip_preserves_existing_records(tmp_path):
+    root=Path(__file__).resolve().parents[1]; config=Config(str(root/'alembic.ini'))
+    path=tmp_path/'attempts.db'; config.set_main_option('sqlalchemy.url','sqlite:///'+path.as_posix())
+    command.upgrade(config,'20261125_0009')
+    engine=create_engine('sqlite:///'+path.as_posix())
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO research_jobs (id, topic, status) VALUES ('saved', 'Existing job', 'PENDING')"))
+    command.upgrade(config,'20261125_0010')
+    assert 'document_processing_attempts' in inspect(engine).get_table_names()
+    with engine.connect() as conn: assert conn.scalar(text("SELECT topic FROM research_jobs WHERE id='saved'")) == 'Existing job'
+    command.downgrade(config,'20261125_0009')
+    assert 'document_processing_attempts' not in inspect(engine).get_table_names()
+    with engine.connect() as conn: assert conn.scalar(text("SELECT topic FROM research_jobs WHERE id='saved'")) == 'Existing job'
+    engine.dispose()

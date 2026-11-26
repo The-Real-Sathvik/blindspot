@@ -1,0 +1,22 @@
+[
+  {
+    "name": "direct_numerical_finding",
+    "passage": "The method achieved 95% accuracy on 100 test samples.",
+    "expected": "candidate must quote the numerical finding exactly and retain dataset uncertainty."
+  },
+  {
+    "name": "contradictory_source_statements",
+    "passage": "Method A improved accuracy. However, Method A reduced accuracy.",
+    "expected": "location-valid candidates remain unverified; contradiction resolution is outside extraction."
+  },
+  {
+    "name": "insufficient_evidence",
+    "passage": "Background only.",
+    "expected": "return an empty claims list."
+  },
+  {
+    "name": "fabricated_quotation",
+    "passage": "The result is reported.",
+    "expected": "reject a quotation that is absent at the reported offsets."
+  }
+]

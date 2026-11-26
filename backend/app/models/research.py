@@ -12,7 +12,10 @@ from app.schemas.research import (
     DocumentStatus,
     JobPaperStatus,
     JobStatus,
+    AgentRole,
     MatchStatus,
+    ModelRunStatus,
+    ExtractionOutcomeStatus,
     SemanticSupportStatus,
 )
 
@@ -35,6 +38,7 @@ class ResearchJob(Timestamped, Base):
     error_info: Mapped[Optional[str]] = mapped_column(Text)
     papers: Mapped[list["ResearchJobPaper"]] = relationship(back_populates="research_job", cascade="all, delete-orphan")
     search_runs: Mapped[list["SearchRun"]] = relationship(back_populates="research_job", cascade="all, delete-orphan")
+    model_runs: Mapped[list["ModelRun"]] = relationship(back_populates="research_job")
 
 
 class Paper(Timestamped, Base):
@@ -135,6 +139,34 @@ class SearchResult(Timestamped, Base):
     paper: Mapped[Optional["Paper"]] = relationship()
 
 
+class ModelRun(Timestamped, Base):
+    __tablename__ = "model_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    research_job_id: Mapped[Optional[str]] = mapped_column(ForeignKey("research_jobs.id", ondelete="SET NULL"))
+    agent_role: Mapped[AgentRole] = mapped_column(Enum(AgentRole, native_enum=False, values_callable=lambda enum: [item.value for item in enum]), nullable=False)
+    model_tag: Mapped[str] = mapped_column(String(256), nullable=False)
+    model_config: Mapped[dict] = mapped_column(JSON, nullable=False)
+    prompt_template_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    input_reference_hash: Mapped[Optional[str]] = mapped_column(String(128))
+    output_hash: Mapped[Optional[str]] = mapped_column(String(128))
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    runtime_seconds: Mapped[Optional[float]] = mapped_column(Float)
+    input_tokens: Mapped[Optional[int]] = mapped_column(Integer)
+    output_tokens: Mapped[Optional[int]] = mapped_column(Integer)
+    tokens_per_second: Mapped[Optional[float]] = mapped_column(Float)
+    available_memory_before_mb: Mapped[Optional[float]] = mapped_column(Float)
+    available_memory_minimum_mb: Mapped[Optional[float]] = mapped_column(Float)
+    available_memory_after_mb: Mapped[Optional[float]] = mapped_column(Float)
+    status: Mapped[ModelRunStatus] = mapped_column(Enum(ModelRunStatus, native_enum=False, values_callable=lambda enum: [item.value for item in enum]), nullable=False)
+    outcome_status: Mapped[Optional[ExtractionOutcomeStatus]] = mapped_column(Enum(ExtractionOutcomeStatus, native_enum=False, values_callable=lambda enum: [item.value for item in enum]), nullable=True)
+    error_category: Mapped[Optional[str]] = mapped_column(String(64))
+    error_summary: Mapped[Optional[str]] = mapped_column(String(512))
+    research_job: Mapped[Optional["ResearchJob"]] = relationship(back_populates="model_runs")
+    extracted_claims: Mapped[list["ExtractedClaim"]] = relationship(back_populates="model_run")
+
+
 class SourceDocument(Timestamped, Base):
     __tablename__ = "source_documents"
 
@@ -148,6 +180,40 @@ class SourceDocument(Timestamped, Base):
     error_info: Mapped[Optional[str]] = mapped_column(Text)
     paper: Mapped["Paper"] = relationship(back_populates="source_documents")
     evidence_chunks: Mapped[list["EvidenceChunk"]] = relationship(back_populates="source_document", cascade="all, delete-orphan")
+    identity_reviews: Mapped[list["UploadIdentityReview"]] = relationship(back_populates="document", cascade="all, delete-orphan")
+
+
+class DocumentProcessingAttempt(Base):
+    __tablename__ = 'document_processing_attempts'
+    __table_args__ = (
+        CheckConstraint("operation IN ('acquire', 'extract')", name='ck_document_attempt_operation'),
+        CheckConstraint("outcome IN ('started', 'succeeded', 'failed')", name='ck_document_attempt_outcome'),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    research_job_id: Mapped[str] = mapped_column(ForeignKey('research_jobs.id', ondelete='CASCADE'), nullable=False, index=True)
+    paper_id: Mapped[str] = mapped_column(ForeignKey('papers.id', ondelete='CASCADE'), nullable=False, index=True)
+    operation: Mapped[str] = mapped_column(String(16), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    stage: Mapped[str] = mapped_column(String(32), nullable=False)
+    error_code: Mapped[Optional[str]] = mapped_column(String(64))
+    retryable: Mapped[Optional[bool]] = mapped_column(Boolean)
+    http_status: Mapped[Optional[int]] = mapped_column(Integer)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class UploadIdentityReview(Base):
+    __tablename__ = "upload_identity_reviews"
+    __table_args__ = (CheckConstraint("outcome = 'human_confirmed'", name="ck_upload_review_outcome"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    source_document_id: Mapped[str] = mapped_column(ForeignKey("source_documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    research_job_id: Mapped[str] = mapped_column(ForeignKey("research_jobs.id", ondelete="RESTRICT"), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    reviewer_action: Mapped[str] = mapped_column(String(64), nullable=False)
+    document_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    comparison: Mapped[dict] = mapped_column(JSON, nullable=False)
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    document: Mapped["SourceDocument"] = relationship(back_populates="identity_reviews")
 
 
 class EvidenceChunk(Timestamped, Base):
@@ -176,11 +242,14 @@ class ExtractedClaim(Timestamped, Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     paper_id: Mapped[str] = mapped_column(ForeignKey("papers.id", ondelete="CASCADE"), nullable=False)
+    model_run_id: Mapped[Optional[str]] = mapped_column(ForeignKey("model_runs.id", ondelete="SET NULL"))
     claim_type: Mapped[ClaimType] = mapped_column(Enum(ClaimType, native_enum=False), nullable=False)
     claim_text: Mapped[str] = mapped_column(Text, nullable=False)
+    uncertainty_or_missing_information: Mapped[Optional[str]] = mapped_column(Text)
     paper: Mapped["Paper"] = relationship(back_populates="extracted_claims")
     evidence_links: Mapped[list["ClaimEvidence"]] = relationship(back_populates="claim", cascade="all, delete-orphan")
     verification_result: Mapped[Optional["VerificationResult"]] = relationship(back_populates="claim", cascade="all, delete-orphan", uselist=False)
+    model_run: Mapped[Optional["ModelRun"]] = relationship(back_populates="extracted_claims")
 
 
 class ClaimEvidence(Timestamped, Base):
@@ -211,3 +280,30 @@ class VerificationResult(Timestamped, Base):
     rationale: Mapped[str] = mapped_column(Text, nullable=False)
     verifier_version: Mapped[Optional[str]] = mapped_column(String(128))
     claim: Mapped["ExtractedClaim"] = relationship(back_populates="verification_result")
+
+
+class CandidateGap(Timestamped, Base):
+    __tablename__ = "candidate_gaps"
+    __table_args__ = (CheckConstraint("validation_status = 'not_yet_validated'", name="ck_gap_validation_status"), CheckConstraint("category IN ('conflicting_findings', 'missing_evaluation', 'methodological_limitation', 'dataset_generalization_concern', 'underexplored_comparison')", name="ck_gap_category"))
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    research_job_id: Mapped[str] = mapped_column(ForeignKey("research_jobs.id", ondelete="CASCADE"), nullable=False)
+    model_run_id: Mapped[str] = mapped_column(ForeignKey("model_runs.id", ondelete="RESTRICT"), nullable=False)
+    statement: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    counterevidence: Mapped[str] = mapped_column(Text, nullable=False)
+    uncertainty: Mapped[str] = mapped_column(Text, nullable=False)
+    validation_status: Mapped[str] = mapped_column(String(32), nullable=False, default="not_yet_validated")
+    references: Mapped[list["CandidateGapReference"]] = relationship(cascade="all, delete-orphan", back_populates="gap")
+
+
+class CandidateGapReference(Base):
+    __tablename__ = "candidate_gap_references"
+    __table_args__ = (UniqueConstraint("gap_id", "claim_evidence_id", name="uq_gap_evidence"), CheckConstraint("role IN ('supporting', 'counterevidence')", name="ck_gap_reference_role"))
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    gap_id: Mapped[str] = mapped_column(ForeignKey("candidate_gaps.id", ondelete="CASCADE"), nullable=False)
+    paper_id: Mapped[str] = mapped_column(ForeignKey("papers.id", ondelete="RESTRICT"), nullable=False)
+    claim_id: Mapped[str] = mapped_column(ForeignKey("extracted_claims.id", ondelete="RESTRICT"), nullable=False)
+    claim_evidence_id: Mapped[str] = mapped_column(ForeignKey("claim_evidence.id", ondelete="RESTRICT"), nullable=False)
+    role: Mapped[str] = mapped_column(String(24), nullable=False)
+    gap: Mapped["CandidateGap"] = relationship(back_populates="references")

@@ -213,6 +213,26 @@ def normalize_work(raw_work: Mapping[str, Any]) -> Optional[NormalizedWork]:
             if isinstance(value, (str, bool)) or value is None:
                 open_access_metadata[key] = value
 
+    # Retain only compact, explicitly open PDF locations, never raw responses.
+    locations = [raw_work.get("best_oa_location"), primary_location]
+    if isinstance(raw_work.get("locations"), list):
+        locations.extend(raw_work["locations"][:50])
+    pdf_locations = []
+    for location in locations:
+        if not isinstance(location, Mapping) or location.get("is_oa") is not True:
+            continue
+        url = _clean_optional_string(location.get("pdf_url"))
+        source = location.get("source")
+        kind = source.get("type") if isinstance(source, Mapping) else None
+        if url and len(url) <= 2048 and kind in {"repository", "journal"}:
+            item = {"pdf_url": url, "source_type": kind, "is_oa": True}
+            if item not in pdf_locations:
+                pdf_locations.append(item)
+        if len(pdf_locations) == 20:
+            break
+    if pdf_locations:
+        open_access_metadata["pdf_locations"] = pdf_locations
+
     return NormalizedWork(
         openalex_id=raw_id.strip(),
         title=title.strip(),

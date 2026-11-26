@@ -1,0 +1,140 @@
+[
+  {
+    "reference_id": "numeric-social-media-engagement",
+    "paper_id": "0308003f-d95e-45c0-8deb-64da6effd488",
+    "document_title": "Exploring the Role of Visual Content in Fake News Detection",
+    "source_document_id": "0bb74217-f47b-40a9-b7cf-770c3ddf1f33",
+    "evidence_chunk_id": "3fe4469e-3dc4-4cc0-a94c-ce430a652bb1",
+    "pdf_page_number": 2,
+    "chunk_start_offset": 1045,
+    "expected_claim_meaning": "The authors report comparative engagement figures for tweets with images.",
+    "claim_category": "result",
+    "supporting_quotation": "18% more clicks, 89% more likes, and 150% more retweets",
+    "chunk_quote_start_offset": 348,
+    "chunk_quote_end_offset": 403,
+    "uncertainty_or_missing_information": "The annotation does not establish the cited study's design or population.",
+    "review_status": "draft",
+    "dataset_split": "development",
+    "review_note": "Prepared from stored normalized text; requires independent human review."
+  },
+  {
+    "reference_id": "objective-comprehensive-review",
+    "paper_id": "0308003f-d95e-45c0-8deb-64da6effd488",
+    "document_title": "Exploring the Role of Visual Content in Fake News Detection",
+    "source_document_id": "0bb74217-f47b-40a9-b7cf-770c3ddf1f33",
+    "evidence_chunk_id": "eeed838c-8195-41d7-b2d8-758c77cb928d",
+    "pdf_page_number": 2,
+    "chunk_start_offset": 2092,
+    "expected_claim_meaning": "The authors state that the chapter provides a review of visual content in fake news.",
+    "claim_category": "objective",
+    "supporting_quotation": "comprehensive review",
+    "chunk_quote_start_offset": 408,
+    "chunk_quote_end_offset": 428,
+    "uncertainty_or_missing_information": "The short quotation does not identify every reviewed topic.",
+    "review_status": "draft",
+    "dataset_split": "development",
+    "review_note": "Prepared from stored normalized text; requires independent human review."
+  },
+  {
+    "reference_id": "limitation-specific-manipulations",
+    "paper_id": "0308003f-d95e-45c0-8deb-64da6effd488",
+    "document_title": "Exploring the Role of Visual Content in Fake News Detection",
+    "source_document_id": "0bb74217-f47b-40a9-b7cf-770c3ddf1f33",
+    "evidence_chunk_id": "4fe31094-55e5-40e8-9e45-6992b8ec3566",
+    "pdf_page_number": 5,
+    "chunk_start_offset": 0,
+    "expected_claim_meaning": "The authors note limited applicability of some manipulation features.",
+    "claim_category": "limitation",
+    "supporting_quotation": "Note that some of them are only applicable",
+    "chunk_quote_start_offset": 291,
+    "chunk_quote_end_offset": 333,
+    "uncertainty_or_missing_information": "The quoted span does not name the applicable manipulation types.",
+    "review_status": "draft",
+    "dataset_split": "development",
+    "review_note": "Prepared from stored normalized text; requires independent human review."
+  },
+  {
+    "reference_id": "caption-fragment-abstention",
+    "paper_id": "0308003f-d95e-45c0-8deb-64da6effd488",
+    "document_title": "Exploring the Role of Visual Content in Fake News Detection",
+    "source_document_id": "0bb74217-f47b-40a9-b7cf-770c3ddf1f33",
+    "evidence_chunk_id": "62c402dc-4d4c-44ee-9bdd-07018b3f5ed9",
+    "pdf_page_number": 3,
+    "chunk_start_offset": 2081,
+    "expected_claim_meaning": "A fragmentary figure-caption continuation is not an extractable author-stated scientific claim.",
+    "expected_abstention": true,
+    "coverage_note": "Authentic abstention case. The current local document contains no explicit future-work statement or genuine contradictory finding; those categories are intentionally not fabricated.",
+    "review_status": "draft",
+    "dataset_split": "development",
+    "review_note": "Prepared from stored normalized text; requires independent human review."
+  },
+  {
+    "reference_id": "hettransformer-novel-model", "paper_id": "4e7356e1-fc02-4c0c-b302-2f4970266286", "document_title": "Fake News Detection with Heterogeneous Transformer", "source_document_id": "3da47b2e-d5dc-4dca-b5b2-f81cf15fcdf2", "evidence_chunk_id": "a68d07a6-b6d8-4f5b-918b-71e9123dbdea", "pdf_page_number": 1, "chunk_start_offset": 0, "expected_claim_meaning": "The authors introduce a Transformer-based model.", "claim_category": "contribution", "supporting_quotation": "we propose a novel Transformer-based model", "chunk_quote_start_offset": 988, "chunk_quote_end_offset": 1030, "uncertainty_or_missing_information": "The quotation does not establish comparative performance.", "review_status": "draft", "dataset_split": "development"
+  },
+  {
+    "reference_id": "hettransformer-three-datasets", "paper_id": "4e7356e1-fc02-4c0c-b302-2f4970266286", "document_title": "Fake News Detection with Heterogeneous Transformer", "source_document_id": "3da47b2e-d5dc-4dca-b5b2-f81cf15fcdf2", "evidence_chunk_id": "e4e5e4f6-799c-4c9a-b93e-618a3e45bdb7", "pdf_page_number": 1, "chunk_start_offset": 1043, "expected_claim_meaning": "The authors report experiments on three real-world datasets.", "claim_category": "result", "supporting_quotation": "Experiments on three real-world datasets", "chunk_quote_start_offset": 443, "chunk_quote_end_offset": 483, "uncertainty_or_missing_information": "Dataset names and measurements are not included in this span.", "review_status": "draft", "dataset_split": "development"
+  },
+  {
+    "reference_id": "hettransformer-prior-method-limitation", "paper_id": "4e7356e1-fc02-4c0c-b302-2f4970266286", "document_title": "Fake News Detection with Heterogeneous Transformer", "source_document_id": "3da47b2e-d5dc-4dca-b5b2-f81cf15fcdf2", "evidence_chunk_id": "71d48d9b-23ef-418e-8f71-7e18c5896156", "pdf_page_number": 1, "chunk_start_offset": 2085, "expected_claim_meaning": "The authors state a limitation of prior methods.", "claim_category": "limitation", "supporting_quotation": "limitation of these methods", "chunk_quote_start_offset": 442, "chunk_quote_end_offset": 469, "uncertainty_or_missing_information": "The annotation does not treat the stated limitation as an independently verified fact.", "review_status": "draft", "dataset_split": "development"
+  },
+  {
+    "reference_id": "hettransformer-model-method", "paper_id": "4e7356e1-fc02-4c0c-b302-2f4970266286", "document_title": "Fake News Detection with Heterogeneous Transformer", "source_document_id": "3da47b2e-d5dc-4dca-b5b2-f81cf15fcdf2", "evidence_chunk_id": "dad8200d-3e5a-4d6c-8edc-59fa2410a6c7", "pdf_page_number": 2, "chunk_start_offset": 1049, "expected_claim_meaning": "The paper identifies its proposed HetTransformer method.", "claim_category": "methodology", "supporting_quotation": "HetTransformer model", "chunk_quote_start_offset": 449, "chunk_quote_end_offset": 469, "uncertainty_or_missing_information": "The short quotation omits implementation details.", "review_status": "draft", "dataset_split": "development"
+  },
+  {
+    "reference_id": "hettransformer-experiment-method", "paper_id": "4e7356e1-fc02-4c0c-b302-2f4970266286", "document_title": "Fake News Detection with Heterogeneous Transformer", "source_document_id": "3da47b2e-d5dc-4dca-b5b2-f81cf15fcdf2", "evidence_chunk_id": "a75589bf-d2b7-4ef9-bd1d-7eb3f0bfbbe2", "pdf_page_number": 2, "chunk_start_offset": 2089, "expected_claim_meaning": "The authors state that they conduct experiments.", "claim_category": "methodology", "supporting_quotation": "We conduct a series of experiments", "chunk_quote_start_offset": 980, "chunk_quote_end_offset": 1014, "uncertainty_or_missing_information": "The quotation does not identify experimental protocol details.", "review_status": "draft", "dataset_split": "development"
+  },
+  {
+    "reference_id": "hettransformer-superior-performance", "paper_id": "4e7356e1-fc02-4c0c-b302-2f4970266286", "document_title": "Fake News Detection with Heterogeneous Transformer", "source_document_id": "3da47b2e-d5dc-4dca-b5b2-f81cf15fcdf2", "evidence_chunk_id": "5d384a05-16c1-42d1-9e7e-7714208c732e", "pdf_page_number": 2, "chunk_start_offset": 3136, "expected_claim_meaning": "The authors report superior performance for their method.", "claim_category": "result", "supporting_quotation": "achieves superior performance", "chunk_quote_start_offset": 68, "chunk_quote_end_offset": 97, "uncertainty_or_missing_information": "No metric is quoted here.", "review_status": "draft", "dataset_split": "development"
+  },
+  {
+    "reference_id": "hettransformer-generalizability-limitation", "paper_id": "4e7356e1-fc02-4c0c-b302-2f4970266286", "document_title": "Fake News Detection with Heterogeneous Transformer", "source_document_id": "3da47b2e-d5dc-4dca-b5b2-f81cf15fcdf2", "evidence_chunk_id": "da5da71d-3415-493c-872c-77170568cb5b", "pdf_page_number": 2, "chunk_start_offset": 4183, "expected_claim_meaning": "The authors attribute low generalizability to prior hand-crafted methods.", "claim_category": "limitation", "supporting_quotation": "inducing low generalizability", "chunk_quote_start_offset": 678, "chunk_quote_end_offset": 707, "uncertainty_or_missing_information": "This is the authors' characterization of prior methods.", "review_status": "draft", "dataset_split": "development"
+  },
+  {
+    "reference_id": "hettransformer-bibliography-abstention", "paper_id": "4e7356e1-fc02-4c0c-b302-2f4970266286", "document_title": "Fake News Detection with Heterogeneous Transformer", "source_document_id": "3da47b2e-d5dc-4dca-b5b2-f81cf15fcdf2", "evidence_chunk_id": "1da96bc7-222f-4467-9501-75b4ac29f0e6", "pdf_page_number": 11, "chunk_start_offset": 1048, "expected_claim_meaning": "A bibliography fragment requires abstention.", "expected_abstention": true, "review_status": "draft", "dataset_split": "development"
+  },
+  {
+    "reference_id": "covid-methodology-objective", "paper_id": "b4e2045d-40e8-4e90-904c-acb33bee80ab", "document_title": "Transformer based Automatic COVID-19 Fake News Detection System", "source_document_id": "ff7f3a3f-ef62-47a1-9ff0-9257a4482af0", "evidence_chunk_id": "178393b2-7a1f-42a2-b465-4ef3e77ec157", "pdf_page_number": 1, "chunk_start_offset": 0, "expected_claim_meaning": "The authors report a methodology for their analysis.", "claim_category": "methodology", "supporting_quotation": "we report a methodology", "chunk_quote_start_offset": 694, "chunk_quote_end_offset": 717, "uncertainty_or_missing_information": "The exact methodology is outside the quoted span.", "review_status": "draft", "dataset_split": "development"
+  },
+  {
+    "reference_id": "covid-architecture-objective", "paper_id": "b4e2045d-40e8-4e90-904c-acb33bee80ab", "document_title": "Transformer based Automatic COVID-19 Fake News Detection System", "source_document_id": "ff7f3a3f-ef62-47a1-9ff0-9257a4482af0", "evidence_chunk_id": "919e99ae-35d8-475a-b06a-fc3d55356701", "pdf_page_number": 2, "chunk_start_offset": 0, "expected_claim_meaning": "The paper states an aim to develop an architecture.", "claim_category": "objective", "supporting_quotation": "this paper looks at developing", "chunk_quote_start_offset": 547, "chunk_quote_end_offset": 577, "uncertainty_or_missing_information": "No completed performance result is implied.", "review_status": "draft", "dataset_split": "development"
+  },
+  {
+    "reference_id": "covid-dataset-size", "paper_id": "b4e2045d-40e8-4e90-904c-acb33bee80ab", "document_title": "Transformer based Automatic COVID-19 Fake News Detection System", "source_document_id": "ff7f3a3f-ef62-47a1-9ff0-9257a4482af0", "evidence_chunk_id": "8e85e888-fbe8-423b-b979-360bb174e9c1", "pdf_page_number": 3, "chunk_start_offset": 2091, "expected_claim_meaning": "The authors state the dataset contains 10,700 points.", "claim_category": "dataset", "supporting_quotation": "10,700 data points", "chunk_quote_start_offset": 243, "chunk_quote_end_offset": 261, "uncertainty_or_missing_information": "The number refers to the described shared-task dataset.", "review_status": "draft", "dataset_split": "development"
+  },
+  {
+    "reference_id": "covid-ensemble-method", "paper_id": "b4e2045d-40e8-4e90-904c-acb33bee80ab", "document_title": "Transformer based Automatic COVID-19 Fake News Detection System", "source_document_id": "ff7f3a3f-ef62-47a1-9ff0-9257a4482af0", "evidence_chunk_id": "ec8c114c-ffa2-40be-a6ed-459e81333aa5", "pdf_page_number": 9, "chunk_start_offset": 1046, "expected_claim_meaning": "The authors describe averaging softmax values in their ensemble.", "claim_category": "methodology", "supporting_quotation": "Our ensemble model computes an average", "chunk_quote_start_offset": 158, "chunk_quote_end_offset": 196, "uncertainty_or_missing_information": "The quotation does not specify all implementation parameters.", "review_status": "draft", "dataset_split": "development"
+  },
+  {
+    "reference_id": "covid-ensemble-accuracy", "paper_id": "b4e2045d-40e8-4e90-904c-acb33bee80ab", "document_title": "Transformer based Automatic COVID-19 Fake News Detection System", "source_document_id": "ff7f3a3f-ef62-47a1-9ff0-9257a4482af0", "evidence_chunk_id": "ac2ca80b-0b49-4286-9c23-afbf55299324", "pdf_page_number": 10, "chunk_start_offset": 0, "expected_claim_meaning": "The results table reports an ensemble value of 0.985512.", "claim_category": "result", "supporting_quotation": "0.985512", "chunk_quote_start_offset": 571, "chunk_quote_end_offset": 579, "uncertainty_or_missing_information": "The number requires its table heading for metric interpretation.", "review_status": "draft", "dataset_split": "development"
+  },
+  {
+    "reference_id": "covid-best-f1", "paper_id": "b4e2045d-40e8-4e90-904c-acb33bee80ab", "document_title": "Transformer based Automatic COVID-19 Fake News Detection System", "source_document_id": "ff7f3a3f-ef62-47a1-9ff0-9257a4482af0", "evidence_chunk_id": "14a0cc1b-79de-4a1e-84f5-dc4255ba5344", "pdf_page_number": 10, "chunk_start_offset": 1047, "expected_claim_meaning": "The authors state a best F1 score of 0.9855.", "claim_category": "result", "supporting_quotation": "F1 score of 0.9855", "chunk_quote_start_offset": 212, "chunk_quote_end_offset": 230, "uncertainty_or_missing_information": "The comparison applies to the reported test set.", "review_status": "draft", "dataset_split": "development"
+  },
+  {
+    "reference_id": "covid-future-contextual-embeddings", "paper_id": "b4e2045d-40e8-4e90-904c-acb33bee80ab", "document_title": "Transformer based Automatic COVID-19 Fake News Detection System", "source_document_id": "ff7f3a3f-ef62-47a1-9ff0-9257a4482af0", "evidence_chunk_id": "0766d226-9327-4c61-811c-1428e3f6d1bc", "pdf_page_number": 11, "chunk_start_offset": 0, "expected_claim_meaning": "The authors express an intention to explore future work.", "claim_category": "future_direction", "supporting_quotation": "intend to explore", "chunk_quote_start_offset": 841, "chunk_quote_end_offset": 858, "uncertainty_or_missing_information": "The continuation specifies prospective embeddings outside this quote.", "review_status": "draft", "dataset_split": "development"
+  },
+  {
+    "reference_id": "covid-bibliography-abstention", "paper_id": "b4e2045d-40e8-4e90-904c-acb33bee80ab", "document_title": "Transformer based Automatic COVID-19 Fake News Detection System", "source_document_id": "ff7f3a3f-ef62-47a1-9ff0-9257a4482af0", "evidence_chunk_id": "77d4782b-99df-4d08-b8d6-1da35b873302", "pdf_page_number": 12, "chunk_start_offset": 2087, "expected_claim_meaning": "A bibliography fragment requires abstention.", "expected_abstention": true, "review_status": "draft", "dataset_split": "development"
+  },
+  {
+    "reference_id": "mining-synthetic-text-problem", "paper_id": "6dc6c49a-9222-4b6d-b64b-ebfc34d8f708", "document_title": "Mining Disinformation and Fake News: Concepts, Methods, and Recent Advancements", "source_document_id": "7da61990-95cf-4315-a417-6787b98206c1", "evidence_chunk_id": "96f12177-6113-42c8-8942-6e42062d1fae", "pdf_page_number": 6, "chunk_start_offset": 0, "expected_claim_meaning": "The authors identify an important problem concerning synthetic text.", "claim_category": "research_problem", "supporting_quotation": "One important", "chunk_quote_start_offset": 188, "chunk_quote_end_offset": 201, "uncertainty_or_missing_information": "The quotation is intentionally short and needs human assessment of full context.", "review_status": "draft", "dataset_split": "held_out"
+  },
+  {
+    "reference_id": "mining-trifn-accuracy", "paper_id": "6dc6c49a-9222-4b6d-b64b-ebfc34d8f708", "document_title": "Mining Disinformation and Fake News: Concepts, Methods, and Recent Advancements", "source_document_id": "7da61990-95cf-4315-a417-6787b98206c1", "evidence_chunk_id": "4232ef89-955f-400b-bcd7-87fcdcc0ff93", "pdf_page_number": 9, "chunk_start_offset": 1048, "expected_claim_meaning": "The authors report TriFN accuracy of 0.87.", "claim_category": "result", "supporting_quotation": "0.87", "chunk_quote_start_offset": 671, "chunk_quote_end_offset": 675, "uncertainty_or_missing_information": "The reported accuracy belongs to the cited experiment context.", "review_status": "draft", "dataset_split": "held_out"
+  },
+  {
+    "reference_id": "mining-defend-performance", "paper_id": "6dc6c49a-9222-4b6d-b64b-ebfc34d8f708", "document_title": "Mining Disinformation and Fake News: Concepts, Methods, and Recent Advancements", "source_document_id": "7da61990-95cf-4315-a417-6787b98206c1", "evidence_chunk_id": "bc7f29b2-7ec6-4115-a8dc-9c8708c8b1e4", "pdf_page_number": 10, "chunk_start_offset": 1043, "expected_claim_meaning": "The authors describe high performance for dEFEND.", "claim_category": "result", "supporting_quotation": "dEFEND achieves very high performances", "chunk_quote_start_offset": 344, "chunk_quote_end_offset": 382, "uncertainty_or_missing_information": "The phrase is qualitative; nearby text provides metrics.", "review_status": "draft", "dataset_split": "held_out"
+  },
+  {
+    "reference_id": "mining-labeled-data-limitation", "paper_id": "6dc6c49a-9222-4b6d-b64b-ebfc34d8f708", "document_title": "Mining Disinformation and Fake News: Concepts, Methods, and Recent Advancements", "source_document_id": "7da61990-95cf-4315-a417-6787b98206c1", "evidence_chunk_id": "d62c7beb-29f4-48a2-80fa-d13f6ddc9bfc", "pdf_page_number": 13, "chunk_start_offset": 1046, "expected_claim_meaning": "The authors identify limited labelled data as a bottleneck.", "claim_category": "limitation", "supporting_quotation": "Limited labeled data is becoming", "chunk_quote_start_offset": 908, "chunk_quote_end_offset": 940, "uncertainty_or_missing_information": "The subsequent context explains the task setting.", "review_status": "draft", "dataset_split": "held_out"
+  },
+  {
+    "reference_id": "mining-future-directions", "paper_id": "6dc6c49a-9222-4b6d-b64b-ebfc34d8f708", "document_title": "Mining Disinformation and Fake News: Concepts, Methods, and Recent Advancements", "source_document_id": "7da61990-95cf-4315-a417-6787b98206c1", "evidence_chunk_id": "8bc96bbe-34aa-4275-8e5b-6c06aeee52e4", "pdf_page_number": 15, "chunk_start_offset": 0, "expected_claim_meaning": "The authors introduce future directions.", "claim_category": "future_direction", "supporting_quotation": "representative future directions", "chunk_quote_start_offset": 245, "chunk_quote_end_offset": 277, "uncertainty_or_missing_information": "Specific directions occur after this introductory phrase.", "review_status": "draft", "dataset_split": "held_out"
+  },
+  {
+    "reference_id": "mining-cross-topic-limitation", "paper_id": "6dc6c49a-9222-4b6d-b64b-ebfc34d8f708", "document_title": "Mining Disinformation and Fake News: Concepts, Methods, and Recent Advancements", "source_document_id": "7da61990-95cf-4315-a417-6787b98206c1", "evidence_chunk_id": "f1c44198-4623-4faa-aceb-baf92b4f8c05", "pdf_page_number": 16, "chunk_start_offset": 0, "expected_claim_meaning": "The authors state a limitation in cross-topic performance.", "claim_category": "limitation", "supporting_quotation": "performance is largely limited", "chunk_quote_start_offset": 728, "chunk_quote_end_offset": 758, "uncertainty_or_missing_information": "The full cause is explained in the surrounding passage.", "review_status": "draft", "dataset_split": "held_out"
+  },
+  {
+    "reference_id": "mining-bibliography-abstention", "paper_id": "6dc6c49a-9222-4b6d-b64b-ebfc34d8f708", "document_title": "Mining Disinformation and Fake News: Concepts, Methods, and Recent Advancements", "source_document_id": "7da61990-95cf-4315-a417-6787b98206c1", "evidence_chunk_id": "8d31b183-effe-48d7-9957-5294e7305c64", "pdf_page_number": 18, "chunk_start_offset": 3130, "expected_claim_meaning": "A bibliography fragment requires abstention.", "expected_abstention": true, "review_status": "draft", "dataset_split": "held_out"
+  }
+]

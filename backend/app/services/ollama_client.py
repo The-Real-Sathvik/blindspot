@@ -6,7 +6,7 @@ import json
 from threading import Lock
 import time
 from typing import Any, TypeVar
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, ValidationError
@@ -19,6 +19,7 @@ _INFERENCE_LOCK = Lock()
 
 class OllamaError(RuntimeError): pass
 class OllamaUnavailableError(OllamaError): pass
+class OllamaModelNotFoundError(OllamaError): pass
 class OllamaTimeoutError(OllamaError): pass
 class OllamaResponseError(OllamaError): pass
 
@@ -28,6 +29,7 @@ class InferenceMetrics:
     elapsed_seconds: float
     output_tokens: int | None
     tokens_per_second: float | None
+    diagnostics: dict | None = None
 
 
 class OllamaClient:
@@ -39,13 +41,17 @@ class OllamaClient:
         self._context_tokens, self._output_tokens = context_tokens, output_tokens
         self._request_fn = request_fn or self._request
 
-    def generate_structured(self, prompt: str, schema: type[T]) -> tuple[T, InferenceMetrics]:
+    def generate_structured(self, prompt: str, schema: type[T], *, model: str | None = None, output_tokens: int | None = None) -> tuple[T, InferenceMetrics]:
+        selected_model = self._validate_model_tag(model or self._model)
+        selected_output = self._output_tokens if output_tokens is None else output_tokens
+        if not 1 <= selected_output <= 512:
+            raise ValueError("output_tokens must be between 1 and 512.")
         payload = {
-            "model": self._model,
+            "model": selected_model,
             "prompt": prompt,
             "stream": False,
             "format": schema.model_json_schema(),
-            "options": {"num_ctx": self._context_tokens, "num_predict": self._output_tokens},
+            "options": {"num_ctx": self._context_tokens, "num_predict": selected_output},
             "keep_alive": "0",
         }
         started = time.perf_counter()
@@ -69,11 +75,32 @@ class OllamaClient:
         rate = round(tokens / (duration_ns / 1_000_000_000), 3) if tokens is not None and duration_ns and duration_ns > 0 else None
         return parsed, InferenceMetrics(round(elapsed, 3), tokens, rate)
 
+    def unload_model(self, model: str) -> None:
+        """Explicitly request unloading before a different model assignment runs."""
+        payload = {"model": self._validate_model_tag(model), "keep_alive": 0}
+        with _INFERENCE_LOCK:
+            try:
+                self._request_fn(payload, self._connect_timeout)
+            except (URLError, TimeoutError):
+                # Unload failure is observable to callers only through later inference; never retry it.
+                return
+
+    @staticmethod
+    def _validate_model_tag(value: str) -> str:
+        value = value.strip()
+        if not value or any(character.isspace() for character in value):
+            raise ValueError("model must be a non-empty Ollama tag")
+        return value
+
     def _request(self, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
         request = Request(f"{self._base_url}/api/generate", data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
         try:
             with urlopen(request, timeout=timeout) as response:  # nosec B310: fixed loopback API
                 return json.loads(response.read().decode("utf-8"))
+        except HTTPError as error:
+            if error.code == 404:
+                raise OllamaModelNotFoundError("Configured Ollama model is unavailable.") from error
+            raise OllamaUnavailableError("Ollama local API request failed.") from error
         except URLError:
             raise
         except TimeoutError:

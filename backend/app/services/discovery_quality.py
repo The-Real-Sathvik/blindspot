@@ -246,6 +246,10 @@ class QualityDiscoveryService:
         if paper is None and work.publication_year is not None:
             paper = next((candidate for candidate in session.scalars(select(Paper).where(Paper.publication_year == work.publication_year)) if _title_key(candidate.title) == _title_key(work.title)), None)
         if paper is not None:
+            # Refresh compact OA metadata only for the same stable OpenAlex ID.
+            # Preserve other source-specific metadata already stored on the paper.
+            if paper.openalex_id == work.openalex_id and work.open_access_metadata:
+                paper.open_access_metadata = {**(paper.open_access_metadata or {}), **work.open_access_metadata}
             return paper
         paper = Paper(title=work.title, doi=work.doi, openalex_id=work.openalex_id, publication_year=work.publication_year, authors=work.authors, abstract=work.abstract, landing_page_url=work.landing_page_url, open_access_metadata=work.open_access_metadata, publication_type=work.publication_type, publication_type_source="openalex" if work.publication_type else None)
         session.add(paper)

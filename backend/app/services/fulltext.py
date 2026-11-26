@@ -6,6 +6,8 @@ from hashlib import sha256
 import ipaddress
 from pathlib import Path
 import re
+import socket
+import ssl
 from typing import BinaryIO, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -33,7 +35,25 @@ class UnsafeUrlError(FullTextError):
 
 
 class DownloadError(FullTextError):
-    pass
+    def __init__(self, message: str, *, code: str = 'network_error', stage: str = 'download', retryable: bool | None = None, http_status: int | None = None):
+        super().__init__(message)
+        self.code, self.stage, self.retryable, self.http_status = code, stage, retryable, http_status
+
+
+def classify_download_exception(error: Exception) -> DownloadError:
+    """Classify transport errors without retaining exception text or URLs."""
+    if isinstance(error, DownloadError): return error
+    if isinstance(error, UnsafeUrlError): return DownloadError('Source policy rejected the request.', code='source_policy_rejected', stage='source_policy', retryable=False)
+    if isinstance(error, HTTPError):
+        status = error.code if type(error.code) is int and 100 <= error.code <= 599 else None
+        return DownloadError('Source returned an HTTP error.', code='source_http_error', retryable=(status == 429 or bool(status and status >= 500)) if status else None, http_status=status)
+    if isinstance(error, URLError):
+        return classify_download_exception(error.reason) if isinstance(error.reason, Exception) else DownloadError('Source connection failed.', code='network_error', retryable=None)
+    if isinstance(error, (TimeoutError, socket.timeout)): return DownloadError('Download timed out.', code='download_timeout', retryable=True)
+    if isinstance(error, socket.gaierror): return DownloadError('Source hostname could not be resolved.', code='dns_error', retryable=True)
+    if isinstance(error, ssl.SSLError): return DownloadError('Secure connection failed.', code='tls_error', retryable=None)
+    if isinstance(error, (ConnectionError, OSError)): return DownloadError('Source connection failed.', code='network_error', retryable=True)
+    return DownloadError('Document processing failed.', code='unexpected_server_error', stage='internal', retryable=None)
 
 
 class ExtractionError(FullTextError):
@@ -101,7 +121,7 @@ class PdfDownloader:
                 content_type = response.headers.get("Content-Type", "").casefold()
                 declared_size = response.headers.get("Content-Length")
                 if declared_size and int(declared_size) > self._max_bytes:
-                    raise DownloadError("PDF exceeds configured size limit.")
+                    raise DownloadError("PDF exceeds configured size limit.", code='pdf_too_large', stage='pdf_validation', retryable=False)
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 digest = sha256(); total = 0
                 with destination.open("wb") as output:
@@ -109,16 +129,16 @@ class PdfDownloader:
                         total += len(block)
                         if total > self._max_bytes:
                             output.close(); destination.unlink(missing_ok=True)
-                            raise DownloadError("PDF exceeds configured size limit.")
+                            raise DownloadError("PDF exceeds configured size limit.", code='pdf_too_large', stage='pdf_validation', retryable=False)
                         digest.update(block); output.write(block)
-        except (HTTPError, URLError, TimeoutError) as error:
-            raise DownloadError("Full-text request failed.") from error
+        except (HTTPError, URLError, TimeoutError, OSError, UnsafeUrlError) as error:
+            raise classify_download_exception(error) from None
         if total < 5 or not destination.read_bytes()[:5] == b"%PDF-":
             destination.unlink(missing_ok=True)
-            raise DownloadError("Response is not a valid PDF signature.")
+            raise DownloadError("Response is not a valid PDF signature.", code='invalid_pdf', stage='pdf_validation', retryable=False)
         if "pdf" not in content_type and content_type:
             destination.unlink(missing_ok=True)
-            raise DownloadError("Response content type is not PDF.")
+            raise DownloadError("Response content type is not PDF.", code='invalid_pdf', stage='pdf_validation', retryable=False)
         return DownloadedPdf(destination, digest.hexdigest(), total, final_url)
 
 

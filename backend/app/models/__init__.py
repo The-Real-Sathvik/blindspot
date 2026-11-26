@@ -4,6 +4,7 @@ from app.models.research import (
     ExtractedClaim,
     Paper,
     PaperExternalIdentifier,
+    ModelRun,
     ResearchJob,
     ResearchJobPaper,
     SourceDocument,
@@ -13,6 +14,6 @@ from app.models.research import (
 )
 
 __all__ = [
-    "ClaimEvidence", "EvidenceChunk", "ExtractedClaim", "Paper", "PaperExternalIdentifier",
+    "ClaimEvidence", "EvidenceChunk", "ExtractedClaim", "ModelRun", "Paper", "PaperExternalIdentifier",
     "ResearchJob", "ResearchJobPaper", "SearchResult", "SearchRun", "SourceDocument", "VerificationResult",
 ]

@@ -55,6 +55,24 @@ class MatchStatus(str, Enum):
     NOT_CHECKED = "not_checked"
 
 
+class AgentRole(str, Enum):
+    CLAIM_EXTRACTION = "claim_extraction"
+    GAP_DETECTION = "gap_detection"
+    SEMANTIC_REVIEW = "semantic_review"
+
+
+class ModelRunStatus(str, Enum):
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
+class ExtractionOutcomeStatus(str, Enum):
+    CLAIMS_EXTRACTED = "claims_extracted"
+    NO_CLAIMS = "no_claims"
+    PARTIAL_ERROR = "partial_error"
+    FAILED_INFERENCE = "failed_inference"
+
+
 class ClaimType(str, Enum):
     RESEARCH_PROBLEM = "research_problem"
     OBJECTIVE = "objective"

@@ -14,6 +14,15 @@ from app.services.openalex import (
 )
 
 
+def test_normalize_retains_only_explicit_open_pdf_locations():
+    record = {'id': 'https://openalex.org/W1', 'title': 'Research', 'open_access': {'is_oa': True},
+              'best_oa_location': {'is_oa': True, 'pdf_url': 'https://pmc.ncbi.nlm.nih.gov/articles/PMC1/pdf/a.pdf', 'source': {'type': 'repository'}},
+              'locations': [{'is_oa': False, 'pdf_url': 'https://example.com/private.pdf', 'source': {'type': 'journal'}},
+                            {'is_oa': True, 'landing_page_url': 'https://example.com/landing', 'source': {'type': 'journal'}}]}
+    metadata = normalize_work(record).open_access_metadata
+    assert metadata['pdf_locations'] == [{'is_oa': True, 'source_type': 'repository', 'pdf_url': 'https://pmc.ncbi.nlm.nih.gov/articles/PMC1/pdf/a.pdf'}]
+
+
 def work_record(
     work_id: str = "https://openalex.org/W1",
     *,
