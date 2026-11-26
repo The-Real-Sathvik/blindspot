@@ -114,11 +114,11 @@ function App() {
               {gaps.length?gaps.map(g=><button className="finding-row" key={g.id} onClick={()=>setPanel({kind:'gap',gap:g})}><strong>{g.statement}</strong><span>Provisional · {g.category.replaceAll('_',' ')}</span></button>):<p className="thread-empty">Gap detection is unavailable. Comparing papers requires independently supported claims from at least two papers; source links alone do not establish support.</p>}
               {!gaps.length && flow.supportedPapers?.size>=2 && <div className="panel-note"><p>Human-supported claims exist, but automatic gap generation is intentionally unavailable. It requires a separately approved provider run and remains provisional.</p></div>}
               <p>Saved candidates are provisional and not established as globally novel.</p>
-              <a className="secondary thread-action" href={`/api/jobs/${encodeURIComponent(selected)}/report`}>Download evidence report</a>
+              <a className="secondary thread-action" href={`/api/jobs/${encodeURIComponent(selected)}/report.pdf`}>Export PDF report</a>
             </Milestone>
           </div>
         </>}
-      </div>{current && <div className="next-action"><div><span className="mini-label">REPORT</span><p>{details.error_info || 'This workspace runs its bounded collection stages automatically. Review the saved report and its limitations.'}</p></div><a className="primary" href={`/api/jobs/${encodeURIComponent(selected)}/report`}>View report<ArrowRight size={15}/></a></div>}</div>
+      </div>{current && <div className="next-action"><div><span className="mini-label">REPORT</span><p>{details.error_info || 'This workspace runs its bounded collection stages automatically. Review the saved report and its limitations.'}</p></div><a className="primary" href={`/api/jobs/${encodeURIComponent(selected)}/report.pdf`}>View PDF<ArrowRight size={15}/></a></div>}</div>
       <EvidencePanel panel={panel} close={closePanel} jobId={selected} papers={papers} docs={docs} claims={claims} readOnly busy={busy} setBusy={setBusy} processPaper={processPaper} uploadPaper={uploadPaper} refresh={()=>loadJob(selected)} openPanel={setPanel} openPaper={openPaper} onReviewClaims={()=>{closePanel();showMilestone('findings');}}/>
       </div>
     </main>

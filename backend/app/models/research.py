@@ -249,6 +249,7 @@ class ExtractedClaim(Timestamped, Base):
     paper: Mapped["Paper"] = relationship(back_populates="extracted_claims")
     evidence_links: Mapped[list["ClaimEvidence"]] = relationship(back_populates="claim", cascade="all, delete-orphan")
     verification_result: Mapped[Optional["VerificationResult"]] = relationship(back_populates="claim", cascade="all, delete-orphan", uselist=False)
+    automated_assessments: Mapped[list["AutomatedSemanticAssessment"]] = relationship(back_populates="claim", cascade="all, delete-orphan")
     model_run: Mapped[Optional["ModelRun"]] = relationship(back_populates="extracted_claims")
 
 
@@ -280,6 +281,59 @@ class VerificationResult(Timestamped, Base):
     rationale: Mapped[str] = mapped_column(Text, nullable=False)
     verifier_version: Mapped[Optional[str]] = mapped_column(String(128))
     claim: Mapped["ExtractedClaim"] = relationship(back_populates="verification_result")
+
+
+class AutomatedSemanticAssessment(Base):
+    """Model-produced assessment; deliberately separate from human review."""
+    __tablename__ = "automated_semantic_assessments"
+    __table_args__ = (
+        UniqueConstraint("claim_id", "evidence_snapshot", "assessment_version", name="uq_automated_assessment_identity"),
+        CheckConstraint("assessment_status IN ('SUPPORTED', 'PARTIALLY_SUPPORTED', 'CONTRADICTED', 'INSUFFICIENT_EVIDENCE')", name="ck_automated_assessment_status"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    claim_id: Mapped[str] = mapped_column(ForeignKey("extracted_claims.id", ondelete="CASCADE"), nullable=False, index=True)
+    model_run_id: Mapped[str] = mapped_column(ForeignKey("model_runs.id", ondelete="RESTRICT"), nullable=False)
+    evidence_snapshot: Mapped[str] = mapped_column(String(64), nullable=False)
+    assessment_status: Mapped[SemanticSupportStatus] = mapped_column(Enum(SemanticSupportStatus, native_enum=False), nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    uncertainty: Mapped[Optional[str]] = mapped_column(Text)
+    assessment_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    assessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    claim: Mapped["ExtractedClaim"] = relationship(back_populates="automated_assessments")
+
+
+class AutomatedProvisionalGap(Timestamped, Base):
+    """Automated cross-paper hypothesis; never a human-reviewed gap."""
+    __tablename__ = "automated_provisional_gaps"
+    __table_args__ = (
+        UniqueConstraint("research_job_id", "identity_hash", name="uq_automated_provisional_gap_identity"),
+        CheckConstraint("validation_status = 'provisional_not_globally_validated'", name="ck_automated_provisional_gap_status"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    research_job_id: Mapped[str] = mapped_column(ForeignKey("research_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    model_run_id: Mapped[str] = mapped_column(ForeignKey("model_runs.id", ondelete="RESTRICT"), nullable=False)
+    identity_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    statement: Mapped[str] = mapped_column(Text, nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    uncertainty: Mapped[str] = mapped_column(Text, nullable=False)
+    validation_status: Mapped[str] = mapped_column(String(64), nullable=False, default="provisional_not_globally_validated")
+    references: Mapped[list["AutomatedProvisionalGapReference"]] = relationship(cascade="all, delete-orphan", back_populates="gap")
+
+
+class AutomatedProvisionalGapReference(Base):
+    __tablename__ = "automated_provisional_gap_references"
+    __table_args__ = (
+        UniqueConstraint("gap_id", "automated_assessment_id", name="uq_automated_provisional_gap_assessment"),
+        CheckConstraint("role IN ('supporting', 'counterevidence')", name="ck_automated_provisional_gap_reference_role"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    gap_id: Mapped[str] = mapped_column(ForeignKey("automated_provisional_gaps.id", ondelete="CASCADE"), nullable=False)
+    paper_id: Mapped[str] = mapped_column(ForeignKey("papers.id", ondelete="RESTRICT"), nullable=False)
+    claim_id: Mapped[str] = mapped_column(ForeignKey("extracted_claims.id", ondelete="RESTRICT"), nullable=False)
+    automated_assessment_id: Mapped[str] = mapped_column(ForeignKey("automated_semantic_assessments.id", ondelete="RESTRICT"), nullable=False)
+    claim_evidence_id: Mapped[str] = mapped_column(ForeignKey("claim_evidence.id", ondelete="RESTRICT"), nullable=False)
+    role: Mapped[str] = mapped_column(String(24), nullable=False)
+    gap: Mapped["AutomatedProvisionalGap"] = relationship(back_populates="references")
 
 
 class CandidateGap(Timestamped, Base):

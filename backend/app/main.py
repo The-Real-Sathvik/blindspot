@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session, object_session
@@ -29,7 +29,7 @@ from app.services.claim_extraction_v3 import PROMPT_VERSION, NoAdmissiblePassage
 from app.services.cloud_inference import CloudBudget, CloudInferenceRouter, GeminiClient, GroqClient, OpenRouterClient
 from app.services.model_config import AgentModelAssignment, BlindspotModelConfig, InferenceProvider
 from app.services.gap_detection import prepare_packet, run_gap_detection
-from app.services.research_report import build_research_report
+from app.services.research_report import build_research_report, render_research_report_pdf
 from app.services.autonomous_research import AutonomousResearchOrchestrator
 from app.schemas.research import DocumentStatus
 
@@ -418,6 +418,12 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
         job_or_404(session, job_id)
         content = build_research_report(session, job_id)
         return PlainTextResponse(content, media_type='text/markdown; charset=utf-8', headers={'Content-Disposition': f'attachment; filename="blindspot-{job_id}.md"'})
+
+    @app.get("/api/jobs/{job_id}/report.pdf")
+    def research_report_pdf(job_id: str, session: Session = Depends(db)):
+        job_or_404(session, job_id)
+        content = render_research_report_pdf(session, job_id)
+        return Response(content, media_type='application/pdf', headers={'Content-Disposition': f'attachment; filename="blindspot-{job_id}.pdf"'})
 
     @app.post("/api/jobs/{job_id}/agents/{agent}", dependencies=[Depends(require_local_request)])
     def unavailable_agent(job_id: str, agent: str, session: Session = Depends(db)):

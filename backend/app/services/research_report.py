@@ -1,6 +1,10 @@
 """Deterministic, evidence-linked Markdown reports for saved research jobs."""
 from __future__ import annotations
 
+import re
+import textwrap
+
+import pymupdf as fitz
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -86,3 +90,39 @@ def build_research_report(session: Session, job_id: str) -> str:
             out.append(f"- {_line(claim.paper.title)}: {_line(claim.claim_text)}")
     out.extend(["", "## Limitations and validation status", "", "- Literal quotation/source-location checks are distinct from scientific semantic support.", "- Human reviews are self-reported local assessments, not authenticated expert certification.", "- Candidate gaps are provisional and do not establish global novelty or absence of prior work.", "- This report is generated solely from stored job records; it does not add findings or infer missing evidence.", ""])
     return "\n".join(out)
+
+
+def render_research_report_pdf(session: Session, job_id: str) -> bytes:
+    """Render the stored, deterministic report without adding research content."""
+    report = build_research_report(session, job_id)
+    pdf = fitz.open()
+    page = None
+    y = 0.0
+    margin, width, bottom = 54, 487, 780
+    def new_page():
+        nonlocal page, y
+        page = pdf.new_page(width=595, height=842)
+        y = margin
+        page.insert_text((margin, y), "BLINDSPOT  ·  EVIDENCE-GROUNDED RESEARCH", fontsize=8, color=(0.4, 0.4, 0.4))
+        y += 26
+    def write(value, *, size=10, bold=False):
+        nonlocal y
+        lines = textwrap.wrap(value, width=max(24, int(92 * 10 / size)), break_long_words=False) or [""]
+        needed = len(lines) * (size + 4) + 6
+        if page is None or y + needed > bottom: new_page()
+        for line in lines:
+            page.insert_text((margin, y), line, fontsize=size, fontname="hebo" if bold else "helv", color=(0.08, 0.08, 0.08))
+            y += size + 4
+        y += 4
+    for raw in report.splitlines():
+        line = raw.strip()
+        if not line: y += 3; continue
+        if line.startswith("# "): write(line[2:], size=18, bold=True)
+        elif line.startswith("## "): write(line[3:], size=13, bold=True)
+        elif line.startswith("### "): write(line[4:], size=11, bold=True)
+        else: write(re.sub(r"^[>-]\s*", "", line).replace("**", ""), size=10)
+    for index, item in enumerate(pdf, start=1):
+        item.insert_text((margin, 812), f"Blindspot research report  ·  {index} / {len(pdf)}", fontsize=8, color=(0.4, 0.4, 0.4))
+    value = pdf.tobytes(garbage=4, deflate=True)
+    pdf.close()
+    return value
