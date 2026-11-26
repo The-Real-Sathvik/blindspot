@@ -31,6 +31,7 @@ from app.services.cloud_inference import CloudBudget, CloudInferenceRouter, Gemi
 from app.services.model_config import AgentModelAssignment, BlindspotModelConfig, InferenceProvider
 from app.services.gap_detection import prepare_packet, run_gap_detection
 from app.services.research_report import build_research_report, render_research_report_pdf
+from app.services.job_state import project as project_job_state, synchronize_finalized_analysis_set
 from app.services.autonomous_research import AutonomousResearchOrchestrator
 from app.schemas.research import DocumentStatus
 
@@ -105,17 +106,15 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
     @app.get("/api/jobs/{job_id}")
     def job_details(job_id: str, session: Session = Depends(db)):
         job = job_or_404(session, job_id)
+        workflow = project_job_state(session, job_id)
         searches = session.scalars(select(SearchRun).where(SearchRun.research_job_id == job_id).order_by(SearchRun.created_at.desc()).limit(20)).all()
         runs = session.scalars(select(ModelRun).where(ModelRun.research_job_id == job_id).order_by(ModelRun.created_at.desc()).limit(20)).all()
         papers = session.scalars(select(ResearchJobPaper).where(ResearchJobPaper.research_job_id == job_id)).all()
-        claim_count = session.scalar(select(func.count(ExtractedClaim.id)).join(ModelRun).where(ModelRun.research_job_id == job_id)) or 0
-        assessment_count = session.scalar(select(func.count(AutomatedSemanticAssessment.id)).join(ExtractedClaim).join(ModelRun).where(ModelRun.research_job_id == job_id)) or 0
-        auto_gap_count = session.scalar(select(func.count(AutomatedProvisionalGap.id)).where(AutomatedProvisionalGap.research_job_id == job_id)) or 0
-        evidence_paper_ids = sorted(link.paper_id for link in papers if link.analysis_selected)
+        evidence_paper_ids = workflow["analysis_paper_ids"]
         return {**job_json(job), "paper_count": len(papers), "shortlist_count": sum(p.included is True for p in papers),
-                "analysis_paper_ids": evidence_paper_ids, "searches": [{"source": r.source_name, "query": r.query_text, "retrieved": r.retrieved_count, "failed": bool(r.error_info)} for r in searches],
+                "analysis_paper_ids": evidence_paper_ids, "workflow": workflow, "searches": [{"source": r.source_name, "query": r.query_text, "retrieved": r.retrieved_count, "failed": bool(r.error_info)} for r in searches],
                 "runs": [{"role": val(r.agent_role), "status": val(r.status), "outcome": val(r.outcome_status), "error_category": r.error_category} for r in runs], "warnings": ([job.error_info] if job.error_info else []),
-                "stages": [{"name": "Research topic", "state": "complete"}, {"name": "Paper discovery & full-text preparation", "state": "complete" if evidence_paper_ids else ("in_progress" if searches else "not_started"), "detail": f"{len(papers)} candidates; {len(evidence_paper_ids)} analysis-ready papers."}, {"name": "Evidence", "state": "complete" if evidence_paper_ids else "blocked"}, {"name": "Findings", "state": "complete" if claim_count else "not_started"}, {"name": "Research gaps", "state": "complete" if auto_gap_count else ("insufficient_evidence" if assessment_count else "not_started"), "detail": "Requires supported automated assessments from two distinct selected papers; outputs are not globally validated."}]}
+                "stages": [{"name": "Research topic", "state": "complete"}, {"name": "Paper discovery & full-text preparation", "state": workflow["stages"]["preparation"]["processing"], "detail": workflow["stages"]["preparation"]["detail"]}, {"name": "Evidence", "state": workflow["stages"]["evidence"]["processing"], "detail": workflow["stages"]["evidence"]["detail"]}, {"name": "Findings", "state": workflow["stages"]["findings"]["processing"], "detail": workflow["stages"]["findings"]["detail"]}, {"name": "Research gaps", "state": workflow["stages"]["gaps"]["processing"], "detail": workflow["stages"]["gaps"]["detail"]}]}
 
     @app.post("/api/jobs/{job_id}/run", dependencies=[Depends(require_local_request)])
     def run_autonomous_job(job_id: str, body: AutonomousRunRequest, session: Session = Depends(db)):
@@ -210,6 +209,7 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
     @app.get("/api/jobs/{job_id}/evidence")
     def evidence(job_id: str, session: Session = Depends(db)):
         job_or_404(session, job_id)
+        synchronize_finalized_analysis_set(session, job_id)
         docs = session.scalars(select(SourceDocument).join(ResearchJobPaper, ResearchJobPaper.paper_id == SourceDocument.paper_id).where(ResearchJobPaper.research_job_id == job_id, ResearchJobPaper.analysis_selected.is_(True)).order_by(SourceDocument.created_at.desc()).limit(100)).all()
         try: excluded = heldout_document_ids()
         except HTTPException: excluded = None
@@ -316,6 +316,7 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
     @app.get("/api/jobs/{job_id}/claims")
     def claims(job_id: str, session: Session = Depends(db)):
         job_or_404(session, job_id)
+        synchronize_finalized_analysis_set(session, job_id)
         rows = session.scalars(select(ExtractedClaim).join(ModelRun, ExtractedClaim.model_run_id == ModelRun.id).join(ResearchJobPaper, ResearchJobPaper.paper_id == ExtractedClaim.paper_id).where(ModelRun.research_job_id == job_id, ModelRun.agent_role == AgentRole.CLAIM_EXTRACTION, ResearchJobPaper.research_job_id == job_id, ResearchJobPaper.analysis_selected.is_(True)).order_by(ExtractedClaim.created_at.desc()).limit(100)).all()
         def visible_review(claim):
             review=current_human_review(claim)

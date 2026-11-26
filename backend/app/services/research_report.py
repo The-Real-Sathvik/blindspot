@@ -12,6 +12,7 @@ from app.models.research import (AutomatedProvisionalGap, AutomatedSemanticAsses
     ExtractedClaim, ModelRun, ResearchJob, ResearchJobPaper)
 from app.schemas.research import AgentRole
 from app.services.human_semantic_review import current_human_review
+from app.services.job_state import project as project_job_state
 
 
 def _line(value: str | None) -> str:
@@ -20,6 +21,7 @@ def _line(value: str | None) -> str:
 
 def build_research_report(session: Session, job_id: str) -> str:
     """Render only persisted artifacts; absence is stated rather than filled in."""
+    workflow = project_job_state(session, job_id)
     job = session.get(ResearchJob, job_id)
     if job is None:
         raise ValueError("Research job not found.")
@@ -42,7 +44,7 @@ def build_research_report(session: Session, job_id: str) -> str:
         select(AutomatedSemanticAssessment).join(ExtractedClaim).join(ModelRun, ExtractedClaim.model_run_id == ModelRun.id)
         .where(ModelRun.research_job_id == job.id).order_by(AutomatedSemanticAssessment.assessed_at.desc())).all()}
 
-    out = ["# Blindspot research report", "", "## Research topic", "", _line(job.topic), "", "## Analyzed papers", ""]
+    out = ["# Blindspot research report", "", "## Research topic", "", _line(job.topic), "", "## Executive summary", "", f"{workflow['candidate_count']} candidates were discovered; {len(workflow['analysis_paper_ids'])} papers with verified page-linked evidence were analyzed.", "", "## Analyzed papers", ""]
     included = [link for link in links if link.analysis_selected]
     if not included:
         out.append("No source-verified analysis papers are available; discovery candidates were not treated as analyzed.")
@@ -90,9 +92,9 @@ def build_research_report(session: Session, job_id: str) -> str:
         if status == "contradicted":
             contradictions.append(claim)
 
-    out.extend(["", "## Candidate research gaps", ""])
+    out.extend(["", "## Provisional research gaps", ""])
     if not gaps:
-        out.append("No candidate gaps are available. Gap detection requires current human-supported claims from at least two distinct papers and remains provisional even when candidates are saved.")
+        out.append("No candidate gaps are available. " + workflow["stages"]["gaps"]["detail"])
     for gap in gaps:
         out.extend([f"### {_line(gap.statement)}", f"- Category: {_line(gap.category)}", f"- Validation status: {_line(gap.validation_status)}", f"- Explanation: {_line(gap.explanation)}", f"- Counterevidence: {_line(gap.counterevidence)}", f"- Uncertainty: {_line(gap.uncertainty)}"])
         for reference in sorted(gap.references, key=lambda item: (item.role, item.paper_id, item.claim_id, item.claim_evidence_id)):
@@ -109,7 +111,7 @@ def build_research_report(session: Session, job_id: str) -> str:
     else:
         for claim in contradictions:
             out.append(f"- {_line(claim.paper.title)}: {_line(claim.claim_text)}")
-    out.extend(["", "## Limitations and validation status", "", "- Literal quotation/source-location checks are distinct from scientific semantic support.", "- Human reviews are self-reported local assessments, not authenticated expert certification.", "- Candidate gaps are provisional and do not establish global novelty or absence of prior work.", "- This report is generated solely from stored job records; it does not add findings or infer missing evidence.", ""])
+    out.extend(["", "## Limitations and validation status", "", "- Literal quotation/source-location checks are distinct from automated semantic assessment.", "- Automated assessments are not human review or independent scientific proof.", "- Provisional gaps do not establish global novelty or absence of prior work.", "- This report is generated solely from stored job records; it does not add findings or infer missing evidence.", ""])
     return "\n".join(out)
 
 
