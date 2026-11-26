@@ -72,3 +72,14 @@ test('a persisted failure directs the user to the paper, not an automatic retry'
   assert.equal(state.action.kind,'review_failure');assert.equal(state.action.paperId,'failed-paper');
   assert.equal(state.eligible.length,0);assert.match(state.action.reason,/manual/);
 });
+
+test('authoritative workflow projection keeps a legacy job finished but limited', () => {
+  const workflow={analysis_paper_ids:['q'],candidate_count:27,evidence_chunk_count:27,claim_count:1,assessment_count:0,supported_paper_count:0,provisional_gap_count:0,
+    stages:{preparation:{processing:'finished',coverage:'sufficient',detail:'27 candidates discovered; 1 verified analysis-ready papers finalized.'},evidence:{processing:'finished',coverage:'sufficient',detail:'27 page-linked evidence chunks across 1 finalized papers.'},findings:{processing:'finished',coverage:'limited',detail:'1 source-grounded findings; 0 automatically assessed.'},gaps:{processing:'blocked',coverage:'limited',detail:'Automated semantic assessment has not run for the saved findings (legacy run); no gap analysis was attempted.'}}};
+  const state=threadState({details:{workflow,searches:[{failed:false}],runs:[]},papers:[{id:'q',analysis_selected:true,document:{status:'extracted'}}],docs:[{paper_id:'q',chunks:[{id:'c'}]}],claims:[{paper_id:'q'}]});
+  assert.equal(state.states.research,'finished_sufficient');
+  assert.equal(state.states.evidence,'finished_sufficient');
+  assert.equal(state.states.findings,'finished_limited');
+  assert.equal(state.states.gaps,'blocked');
+  assert.match(state.action.reason,/legacy run/);
+});

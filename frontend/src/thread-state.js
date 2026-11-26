@@ -8,7 +8,12 @@ export function threadState(bundle, {busy = '', failures = {}, needsRefresh = fa
   if (!bundle) return {active:'topic', action:{kind:'start', label:'Start research', reason:'Create a workspace for your question.'}, states:{}};
   const {details, papers = [], docs = [], claims = [], gaps = []} = bundle;
   const workflow = details?.workflow;
-  const stageState = (stage) => ({finished:'completed',running:'in_progress',pending:'not_started',failed:'failed',blocked:'blocked'})[workflow?.stages?.[stage]?.processing] || null;
+  const stageState = (stage) => {
+    const current = workflow?.stages?.[stage];
+    if (!current) return null;
+    if (current.processing === 'finished') return `finished_${current.coverage || 'limited'}`;
+    return ({running:'in_progress',pending:'not_started',failed:'failed',blocked:'blocked'})[current.processing] || null;
+  };
   const shortlist = papers.filter(p => p.included === true);
   const analysis = papers.filter(p => p.analysis_selected === true);
   const eligible = shortlist.filter(p => p.document?.status !== 'failed' && !['failed','started'].includes(p.document?.attempt?.outcome) && (p.document?.can_acquire || p.document?.can_extract));
