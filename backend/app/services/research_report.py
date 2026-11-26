@@ -42,18 +42,25 @@ def build_research_report(session: Session, job_id: str) -> str:
         select(AutomatedSemanticAssessment).join(ExtractedClaim).join(ModelRun, ExtractedClaim.model_run_id == ModelRun.id)
         .where(ModelRun.research_job_id == job.id).order_by(AutomatedSemanticAssessment.assessed_at.desc())).all()}
 
-    out = ["# Blindspot research report", "", "## Research topic", "", _line(job.topic), "", "## Included papers", ""]
-    included = [link for link in links if link.included is True]
+    out = ["# Blindspot research report", "", "## Research topic", "", _line(job.topic), "", "## Analyzed papers", ""]
+    included = [link for link in links if link.analysis_selected]
     if not included:
-        out.append("No papers are currently in the saved shortlist.")
+        out.append("No source-verified analysis papers are available; discovery candidates were not treated as analyzed.")
     for link in included:
         paper = link.paper
         out.extend([f"- **{_line(paper.title)}** ({paper.publication_year or 'year not provided'})",
                     f"  - Selection: {_line(link.decision_reason)}",
                     f"  - DOI: {_line(paper.doi)}"])
 
+    unselected = [link for link in links if not link.analysis_selected]
+    if unselected:
+        out.extend(["", "## Discovery candidates not analyzed", ""])
+        out.extend(f"- {_line(link.paper.title)} — no verified full-text evidence was selected for this report." for link in unselected)
+
     out.extend(["", "## Preliminary abstract metadata", ""])
-    abstracts = [link.paper for link in included if isinstance(link.paper.abstract, str) and link.paper.abstract.strip()]
+    # Candidate abstracts remain clearly preliminary even when no paper reached
+    # the finalized full-text analysis set.
+    abstracts = [link.paper for link in links if isinstance(link.paper.abstract, str) and link.paper.abstract.strip()]
     if not abstracts:
         out.append("No saved abstracts are available for the included papers.")
     else:

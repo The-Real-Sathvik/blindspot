@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.research import EvidenceChunk, ExtractedClaim, ModelRun, ResearchJob, ResearchJobPaper, SearchRun, SourceDocument
-from app.schemas.research import JobStatus
+from app.schemas.research import JobPaperStatus, JobStatus
 from app.schemas.research import AgentRole
 from app.services.claim_extraction_v3 import NoAdmissiblePassage, PROMPT_VERSION, run_development_extraction
 from app.services.document_attempts import job_document_state, perform_attempt
@@ -105,8 +105,10 @@ class AutonomousResearchOrchestrator:
         # evidence, recover through a bounded set of job-associated alternatives.
         # Source readiness ranks ahead of relevance only after the shortlist has
         # proved unusable: saved evidence, saved PDF, then approved PDF URL.
-        claim_links = list(links)
-        if evidence_ready == 0:
+        candidate_links = list(links)
+        # Recovery is also used when just one shortlist paper is usable: Agent 2
+        # needs a genuine cross-paper set, not metadata-only shortlist entries.
+        if evidence_ready < min(2, self.shortlist_limit):
             alternatives = session.scalars(select(ResearchJobPaper).where(
                 ResearchJobPaper.research_job_id == job.id, ResearchJobPaper.included.is_not(True)
             ).order_by(ResearchJobPaper.relevance_score.desc(), ResearchJobPaper.paper_id)).all()
@@ -122,11 +124,28 @@ class AutonomousResearchOrchestrator:
             for alternative in recovery[:self.max_recovery_papers]:
                 state = prepare(alternative)
                 if state["status"] == "extracted":
-                    claim_links.append(alternative)
-                    # One source-verified alternative is sufficient to begin
-                    # bounded claim extraction. Do not download further PDFs
-                    # merely because recovery candidates remain available.
-                    break
+                    candidate_links.append(alternative)
+                    if evidence_ready >= self.shortlist_limit:
+                        break
+
+        # The durable analysis set is the only source for Agent 1/2 and reports.
+        # Historical shortlist membership is deliberately left untouched.
+        for link in session.scalars(select(ResearchJobPaper).where(ResearchJobPaper.research_job_id == job.id)).all():
+            link.analysis_selected = False
+        final_links = []
+        seen_papers = set()
+        for link in sorted(candidate_links, key=lambda item: (-(item.relevance_score or 0), item.paper_id)):
+            state = job_document_state(session, job.id, link.paper)
+            if link.paper_id not in seen_papers and state["status"] == "extracted":
+                link.analysis_selected = True
+                link.status = JobPaperStatus.ANALYZED
+                final_links.append(link)
+                seen_papers.add(link.paper_id)
+            if len(final_links) >= self.shortlist_limit:
+                break
+        session.commit()
+        evidence_ready = len(final_links)
+        claim_links = final_links
 
         claim_attempted = claim_accepted = claim_abstained = claim_failed = 0
         if self.claim_runner is not None and self.claim_assignment is not None:
@@ -198,7 +217,9 @@ class AutonomousResearchOrchestrator:
         assessment_attempted = assessment_supported = assessment_failed = 0
         if self.claim_runner is not None and self.semantic_assignment is not None:
             claims = session.scalars(select(ExtractedClaim).join(ModelRun, ExtractedClaim.model_run_id == ModelRun.id)
-                .where(ModelRun.research_job_id == job.id).order_by(ExtractedClaim.created_at, ExtractedClaim.id)
+                .join(ResearchJobPaper, ResearchJobPaper.paper_id == ExtractedClaim.paper_id)
+                .where(ModelRun.research_job_id == job.id, ResearchJobPaper.research_job_id == job.id,
+                       ResearchJobPaper.analysis_selected.is_(True)).order_by(ExtractedClaim.created_at, ExtractedClaim.id)
                 .limit(self.max_assessment_claims)).all()
             for claim in claims:
                 try:
@@ -224,7 +245,7 @@ class AutonomousResearchOrchestrator:
         if self.claim_runner is not None and self.gap_assignment is not None and self.max_gap_runs:
             allowed = frozenset(session.scalars(select(EvidenceChunk.id).join(SourceDocument)
                 .join(ResearchJobPaper, ResearchJobPaper.paper_id == SourceDocument.paper_id)
-                .where(ResearchJobPaper.research_job_id == job.id)).all())
+                .where(ResearchJobPaper.research_job_id == job.id, ResearchJobPaper.analysis_selected.is_(True))).all())
             try:
                 if session.in_transaction():
                     session.commit()

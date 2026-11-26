@@ -182,9 +182,12 @@ def test_autonomous_recovery_processes_eligible_alternatives_without_changing_sh
 
     result = AutonomousResearchOrchestrator(lambda: None, max_recovery_papers=3).run(session, job)
 
-    assert calls == [(failed.id, 'acquire'), (recovered.id, 'acquire'), (recovered.id, 'extract')]
-    assert result.evidence_ready == 1 and result.failed_documents == 1
+    assert calls == [(failed.id, 'acquire'), (recovered.id, 'acquire'), (recovered.id, 'extract'), (unused.id, 'acquire'), (unused.id, 'extract')]
+    assert result.evidence_ready == 2 and result.failed_documents == 1
     assert links[0].included is True and links[1].included is False and links[2].included is False
+    assert links[2].analysis_selected is True and links[3].analysis_selected is True
+    report = build_research_report(session, job.id)
+    assert 'Second permitted alternative' in report and 'Relevant but no permitted source — no verified full-text evidence' in report
 
 
 def test_autonomous_recovery_respects_candidate_budget_and_skips_prior_failed_attempts(session, monkeypatch):

@@ -88,7 +88,7 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
         p = link.paper
         url = p.landing_page_url if p.landing_page_url and urlparse(p.landing_page_url).scheme in {"http", "https"} else None
         oa = p.open_access_metadata if isinstance(p.open_access_metadata, dict) else {}
-        return {"id": p.id, "title": p.title, "authors": p.authors, "year": p.publication_year, "source": "OpenAlex + arXiv" if p.openalex_id and p.arxiv_id else ("OpenAlex" if p.openalex_id else ("arXiv" if p.arxiv_id else "Unknown")), "doi": p.doi, "abstract": p.abstract, "landing_page_url": url, "publication_type": p.publication_type, "included": link.included, "score": link.relevance_score, "selection_reason": link.decision_reason, "status": val(link.status), "open_access": oa.get('is_oa') if isinstance(oa.get('is_oa'), bool) else None, "document": job_document_state(object_session(link), link.research_job_id, p)}
+        return {"id": p.id, "title": p.title, "authors": p.authors, "year": p.publication_year, "source": "OpenAlex + arXiv" if p.openalex_id and p.arxiv_id else ("OpenAlex" if p.openalex_id else ("arXiv" if p.arxiv_id else "Unknown")), "doi": p.doi, "abstract": p.abstract, "landing_page_url": url, "publication_type": p.publication_type, "included": link.included, "analysis_selected": link.analysis_selected, "score": link.relevance_score, "selection_reason": link.decision_reason, "status": val(link.status), "open_access": oa.get('is_oa') if isinstance(oa.get('is_oa'), bool) else None, "document": job_document_state(object_session(link), link.research_job_id, p)}
 
     @app.get("/api/health")
     def health(): return {"status": "ok"}
@@ -111,11 +111,11 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
         claim_count = session.scalar(select(func.count(ExtractedClaim.id)).join(ModelRun).where(ModelRun.research_job_id == job_id)) or 0
         assessment_count = session.scalar(select(func.count(AutomatedSemanticAssessment.id)).join(ExtractedClaim).join(ModelRun).where(ModelRun.research_job_id == job_id)) or 0
         auto_gap_count = session.scalar(select(func.count(AutomatedProvisionalGap.id)).where(AutomatedProvisionalGap.research_job_id == job_id)) or 0
-        evidence_paper_ids = sorted({paper.id for paper in (link.paper for link in papers) if any(doc.evidence_chunks for doc in paper.source_documents)})
+        evidence_paper_ids = sorted(link.paper_id for link in papers if link.analysis_selected)
         return {**job_json(job), "paper_count": len(papers), "shortlist_count": sum(p.included is True for p in papers),
                 "analysis_paper_ids": evidence_paper_ids, "searches": [{"source": r.source_name, "query": r.query_text, "retrieved": r.retrieved_count, "failed": bool(r.error_info)} for r in searches],
                 "runs": [{"role": val(r.agent_role), "status": val(r.status), "outcome": val(r.outcome_status), "error_category": r.error_category} for r in runs], "warnings": ([job.error_info] if job.error_info else []),
-                "stages": [{"name": "Paper discovery", "state": "complete" if searches else "not_started"}, {"name": "Full text & evidence", "state": "complete" if evidence_paper_ids else "not_started"}, {"name": "Claim extraction", "state": "complete" if claim_count else "not_started"}, {"name": "Automated semantic assessment", "state": "complete" if assessment_count else ("blocked" if claim_count else "not_started"), "detail": "Automated support is distinct from human review."}, {"name": "Provisional gap detection", "state": "complete" if auto_gap_count else ("insufficient_evidence" if assessment_count else "not_started"), "detail": "Requires supported automated assessments from two distinct papers; outputs are not globally validated."}]}
+                "stages": [{"name": "Research topic", "state": "complete"}, {"name": "Paper discovery & full-text preparation", "state": "complete" if evidence_paper_ids else ("in_progress" if searches else "not_started"), "detail": f"{len(papers)} candidates; {len(evidence_paper_ids)} analysis-ready papers."}, {"name": "Evidence", "state": "complete" if evidence_paper_ids else "blocked"}, {"name": "Findings", "state": "complete" if claim_count else "not_started"}, {"name": "Research gaps", "state": "complete" if auto_gap_count else ("insufficient_evidence" if assessment_count else "not_started"), "detail": "Requires supported automated assessments from two distinct selected papers; outputs are not globally validated."}]}
 
     @app.post("/api/jobs/{job_id}/run", dependencies=[Depends(require_local_request)])
     def run_autonomous_job(job_id: str, body: AutonomousRunRequest, session: Session = Depends(db)):
@@ -210,7 +210,7 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
     @app.get("/api/jobs/{job_id}/evidence")
     def evidence(job_id: str, session: Session = Depends(db)):
         job_or_404(session, job_id)
-        docs = session.scalars(select(SourceDocument).join(ResearchJobPaper, ResearchJobPaper.paper_id == SourceDocument.paper_id).where(ResearchJobPaper.research_job_id == job_id).order_by(SourceDocument.created_at.desc()).limit(100)).all()
+        docs = session.scalars(select(SourceDocument).join(ResearchJobPaper, ResearchJobPaper.paper_id == SourceDocument.paper_id).where(ResearchJobPaper.research_job_id == job_id, ResearchJobPaper.analysis_selected.is_(True)).order_by(SourceDocument.created_at.desc()).limit(100)).all()
         try: excluded = heldout_document_ids()
         except HTTPException: excluded = None
         heldout_hashes = set(session.scalars(select(SourceDocument.content_hash).where(SourceDocument.id.in_(excluded), SourceDocument.content_hash.is_not(None)))) if excluded is not None else set()
@@ -316,7 +316,7 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
     @app.get("/api/jobs/{job_id}/claims")
     def claims(job_id: str, session: Session = Depends(db)):
         job_or_404(session, job_id)
-        rows = session.scalars(select(ExtractedClaim).join(ModelRun, ExtractedClaim.model_run_id == ModelRun.id).where(ModelRun.research_job_id == job_id, ModelRun.agent_role == AgentRole.CLAIM_EXTRACTION).order_by(ExtractedClaim.created_at.desc()).limit(100)).all()
+        rows = session.scalars(select(ExtractedClaim).join(ModelRun, ExtractedClaim.model_run_id == ModelRun.id).join(ResearchJobPaper, ResearchJobPaper.paper_id == ExtractedClaim.paper_id).where(ModelRun.research_job_id == job_id, ModelRun.agent_role == AgentRole.CLAIM_EXTRACTION, ResearchJobPaper.research_job_id == job_id, ResearchJobPaper.analysis_selected.is_(True)).order_by(ExtractedClaim.created_at.desc()).limit(100)).all()
         def visible_review(claim):
             review=current_human_review(claim)
             if review is None: return None
@@ -401,7 +401,9 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
     def gaps(job_id: str, session: Session = Depends(db)):
         job_or_404(session, job_id)
         rows = session.scalars(select(CandidateGap).where(CandidateGap.research_job_id == job_id).order_by(CandidateGap.created_at.desc()).limit(100)).all()
-        return [{"id": g.id, "statement": g.statement, "category": g.category, "explanation": g.explanation, "counterevidence": g.counterevidence, "uncertainty": g.uncertainty, "validation_status": g.validation_status, "references": [{"paper_id": r.paper_id, "claim_id": r.claim_id, "evidence_id": r.claim_evidence_id, "role": r.role} for r in g.references]} for g in rows]
+        automated = session.scalars(select(AutomatedProvisionalGap).where(AutomatedProvisionalGap.research_job_id == job_id).order_by(AutomatedProvisionalGap.created_at.desc()).limit(100)).all()
+        return ([{"id": g.id, "statement": g.statement, "category": g.category, "explanation": g.explanation, "counterevidence": g.counterevidence, "uncertainty": g.uncertainty, "validation_status": g.validation_status, "references": [{"paper_id": r.paper_id, "claim_id": r.claim_id, "evidence_id": r.claim_evidence_id, "role": r.role} for r in g.references]} for g in rows] +
+                [{"id": g.id, "statement": g.statement, "category": "automated_provisional", "explanation": g.rationale, "counterevidence": "Recorded in supporting references.", "uncertainty": g.uncertainty, "validation_status": "Provisional — Not globally validated.", "references": [{"paper_id": r.paper_id, "claim_id": r.claim_id, "evidence_id": r.claim_evidence_id, "role": r.role} for r in g.references]} for g in automated])
 
     @app.post("/api/jobs/{job_id}/gaps/detect", dependencies=[Depends(require_local_request)])
     def detect_gaps(job_id: str, body: GapDetectionRequest, session: Session = Depends(db)):

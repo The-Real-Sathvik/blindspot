@@ -82,6 +82,8 @@ class ResearchJobPaper(Timestamped, Base):
     relevance_score: Mapped[Optional[float]] = mapped_column(Float)
     decision_reason: Mapped[Optional[str]] = mapped_column(Text)
     error_info: Mapped[Optional[str]] = mapped_column(Text)
+    # Final, job-scoped analysis set. Discovery shortlisting remains historical.
+    analysis_selected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     research_job: Mapped["ResearchJob"] = relationship(back_populates="papers")
     paper: Mapped["Paper"] = relationship(back_populates="research_jobs")
 
