@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import json
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.research import AutomatedSemanticAssessment, ExtractedClaim, ModelRun, ResearchJob
@@ -55,7 +55,6 @@ def prompt_for(claim: ExtractedClaim, snapshot: str) -> str:
 def assess(session: Session, *, job_id: str, claim_id: str, assignment: AgentModelAssignment, runner) -> AssessmentResult:
     if session.bind is None or session.bind.dialect.name != "sqlite" or session.in_transaction():
         raise ValueError("Automated assessment requires a fresh SQLite session.")
-    session.execute(text("BEGIN IMMEDIATE"))
     job = session.get(ResearchJob, job_id)
     claim = session.get(ExtractedClaim, claim_id)
     if job is None or claim is None or claim.model_run_id is None:
@@ -74,17 +73,23 @@ def assess(session: Session, *, job_id: str, claim_id: str, assignment: AgentMod
     assignment = AgentModelAssignment.model_validate({**assignment.model_dump(), "prompt_template_version": VERSION})
     recorder = ModelRunRecorder()
     run = recorder.start(session, research_job=job, role=AgentRole.SEMANTIC_REVIEW, assignment=assignment, input_reference=f"{claim.id}:{snapshot}:{VERSION}")
+    # Never retain a SQLite write transaction across provider execution.
+    session.commit()
     try:
         response, metrics = runner.generate(AgentRole.SEMANTIC_REVIEW, prompt_for(claim, snapshot), AssessmentResponse)
         response = AssessmentResponse.model_validate(response)
+        claim = session.get(ExtractedClaim, claim_id)
+        if claim is None or eligibility(claim) != snapshot:
+            raise RuntimeError("Source evidence changed before assessment persistence.")
     except Exception as error:
+        run = session.get(ModelRun, run.id)
         recorder.fail(run, error if isinstance(error, CloudInferenceError) else RuntimeError("Assessment response validation failed."))
-        session.flush()
+        session.commit()
         return AssessmentResult(run.id, "failed")
     row = AutomatedSemanticAssessment(claim=claim, model_run_id=run.id, evidence_snapshot=snapshot,
         assessment_status=response.assessment_status, rationale=response.rationale, uncertainty=response.uncertainty,
         assessment_version=VERSION, assessed_at=datetime.now(timezone.utc))
     session.add(row)
     recorder.succeed(run, output=response.model_dump_json(), metrics=metrics)
-    session.flush()
+    session.commit()
     return AssessmentResult(run.id, "assessed", row.id)

@@ -5,8 +5,8 @@ from fastapi.testclient import TestClient
 from app.db.base import Base
 from app.db.session import create_session_factory, create_sqlite_engine
 from app.main import create_app
-from app.models.research import EvidenceChunk, Paper, ResearchJob, ResearchJobPaper, SearchRun, SourceDocument
-from app.schemas.research import DocumentStatus, JobStatus
+from app.models.research import EvidenceChunk, ExtractedClaim, ModelRun, Paper, ResearchJob, ResearchJobPaper, SearchRun, SourceDocument
+from app.schemas.research import AgentRole, ClaimType, DocumentStatus, JobStatus, ModelRunStatus
 from app.services.autonomous_research import AutonomousResearchOrchestrator
 from app.services.model_config import AgentModelAssignment
 from app.services.research_report import build_research_report
@@ -122,6 +122,27 @@ def test_autonomous_claim_handoff_uses_only_saved_extracted_alternative_when_sho
     assert result.claim_attempted == 1 and result.claim_abstained == 1
     saved_link = session.query(ResearchJobPaper).filter_by(research_job_id=job.id, paper_id=alternative.id).one()
     assert saved_link.included is False and saved_link.error_info.startswith('[claim-extraction] abstained')
+
+
+def test_autonomous_hands_saved_claims_to_assessment_then_provisional_gap(session, monkeypatch):
+    job = ResearchJob(topic='Two-paper automated handoff')
+    session.add(job); session.flush()
+    for index in range(2):
+        paper = Paper(title=f'Paper {index}', authors=[], openalex_id=f'W-auto-gap-{index}', open_access_metadata={})
+        document = SourceDocument(paper=paper, document_type='pdf', status=DocumentStatus.AVAILABLE, local_path='fixture.pdf')
+        chunk = EvidenceChunk(source_document=document, page_number=1, chunk_index=0, start_offset=0, end_offset=24, text='A complete fixture finding.')
+        run = ModelRun(research_job=job, agent_role=AgentRole.CLAIM_EXTRACTION, model_tag='fixture', model_config={}, prompt_template_version='claim-extraction-v3', status=ModelRunStatus.SUCCESS)
+        session.add_all([ResearchJobPaper(research_job=job, paper=paper, included=True, relevance_score=1-index/10), chunk,
+                         ExtractedClaim(paper=paper, model_run=run, claim_type=ClaimType.RESULT, claim_text=f'Finding {index}')])
+    session.flush(); session.add(SearchRun(research_job=job, source_name='fixture', query_text='fixture', requested_limit=2)); session.commit()
+    monkeypatch.setattr('app.services.autonomous_research.job_document_state', lambda *_: {'status': 'extracted'})
+    assessed=[]
+    monkeypatch.setattr('app.services.autonomous_research.assess_claim', lambda _s, **kw: assessed.append(kw['claim_id']) or SimpleNamespace(outcome='assessed', assessment_id=None, reused=False))
+    monkeypatch.setattr('app.services.autonomous_research.run_provisional_gap', lambda _s, **kw: (None, 'insufficient_evidence'))
+    config = AgentModelAssignment(provider='gemini', model_tag='gemini-3.5-flash-lite', output_tokens=512, gemini_response_mode='prompt_json', prompt_template_version='fixture')
+    result = AutonomousResearchOrchestrator(lambda: None, claim_runner=object(), semantic_assignment=config, gap_assignment=config).run(session, job)
+    assert len(assessed) == 2 and result.assessment_attempted == 2
+    assert result.provisional_gap_outcome == 'insufficient_evidence'
 
 
 def test_autonomous_recovery_processes_eligible_alternatives_without_changing_shortlist(session, monkeypatch):

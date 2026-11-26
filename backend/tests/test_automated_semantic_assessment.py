@@ -2,9 +2,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.models.research import ClaimEvidence, EvidenceChunk, ExtractedClaim, ModelRun, Paper, ResearchJob, ResearchJobPaper, SourceDocument, VerificationResult
+from app.models.research import (AutomatedSemanticAssessment, ClaimEvidence, EvidenceChunk, ExtractedClaim, ModelRun,
+    Paper, ResearchJob, ResearchJobPaper, SourceDocument, VerificationResult)
 from app.schemas.research import AgentRole, CitationCheckStatus, ClaimType, ModelRunStatus, SemanticSupportStatus
 from app.services.automated_semantic_assessment import AssessmentResponse, VERSION, assess
+from app.services.automated_provisional_gaps import ProvisionalGapResponse, run as run_provisional_gap
 from app.services.model_config import AgentModelAssignment
 from app.services.ollama_client import InferenceMetrics
 
@@ -48,3 +50,29 @@ def test_mismatched_current_evidence_blocks_assessment(session, monkeypatch):
     with pytest.raises(ValueError):
         assess(session,job_id=job.id,claim_id=claim.id,assignment=assignment(),runner=SimpleNamespace())
     assert claim.verification_result is None and not claim.automated_assessments
+
+
+def test_provisional_gap_requires_two_current_supported_papers_and_persists(session, monkeypatch):
+    job=ResearchJob(topic='Two paper gap')
+    session.add(job); session.flush(); records=[]
+    for index in range(2):
+        paper=Paper(title=f'Paper {index}',authors=[],openalex_id=f'W-gap-{index}',open_access_metadata={})
+        claim_run=ModelRun(research_job=job,agent_role=AgentRole.CLAIM_EXTRACTION,model_tag='gemini-3.5-flash-lite',model_config={},prompt_template_version='v3',status=ModelRunStatus.SUCCESS)
+        assessment_run=ModelRun(research_job=job,agent_role=AgentRole.SEMANTIC_REVIEW,model_tag='gemini-3.5-flash-lite',model_config={},prompt_template_version='assessment',status=ModelRunStatus.SUCCESS)
+        doc=SourceDocument(paper=paper,document_type='pdf',status='available',content_hash=f'x{index}')
+        text=f'Paper {index} reports a measured result.'
+        chunk=EvidenceChunk(source_document=doc,page_number=1,chunk_index=0,start_offset=0,end_offset=len(text),text=text)
+        claim=ExtractedClaim(paper=paper,model_run=claim_run,claim_type=ClaimType.RESULT,claim_text=text)
+        evidence=ClaimEvidence(claim=claim,evidence_chunk=chunk,quotation_text=text,quote_start_offset=0,quote_end_offset=len(text),quotation_status=CitationCheckStatus.VALID,source_location_status=CitationCheckStatus.VALID)
+        session.add_all([ResearchJobPaper(research_job=job,paper=paper,included=True), claim_run, assessment_run, evidence]); session.flush()
+        snapshot='snapshot-'+str(index)
+        session.add(AutomatedSemanticAssessment(claim=claim,model_run_id=assessment_run.id,evidence_snapshot=snapshot,assessment_status=SemanticSupportStatus.SUPPORTED,rationale='Exact text supports it.',uncertainty=None,assessment_version=VERSION,assessed_at=__import__('datetime').datetime.now(__import__('datetime').timezone.utc)))
+        records.append((paper,claim,evidence,chunk,snapshot))
+    session.commit()
+    monkeypatch.setattr('app.services.automated_provisional_gaps.eligibility', lambda claim: next(row[4] for row in records if row[1].id == claim.id))
+    refs=[{'paper_id':p.id,'claim_id':c.id,'assessment_id':c.automated_assessments[0].id,'evidence_id':e.id,'role':'supporting'} for p,c,e,_chunk,_snapshot in records]
+    class Runner:
+        def generate(self,*_args):
+            return ProvisionalGapResponse(statement='A bounded comparison remains needed.', rationale='The two supported findings identify different conditions.', uncertainty='Two papers are insufficient for novelty.', references=refs), InferenceMetrics(0.1,20,200)
+    gap,outcome=run_provisional_gap(session,job_id=job.id,allowed_chunk_ids=frozenset(row[3].id for row in records),assignment=assignment(),runner=Runner())
+    assert outcome=='generated' and gap.validation_status=='provisional_not_globally_validated' and len(gap.references)==2

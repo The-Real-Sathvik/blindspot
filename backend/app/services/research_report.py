@@ -8,7 +8,8 @@ import pymupdf as fitz
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.research import CandidateGap, ExtractedClaim, ModelRun, ResearchJob, ResearchJobPaper
+from app.models.research import (AutomatedProvisionalGap, AutomatedSemanticAssessment, CandidateGap,
+    ExtractedClaim, ModelRun, ResearchJob, ResearchJobPaper)
 from app.schemas.research import AgentRole
 from app.services.human_semantic_review import current_human_review
 
@@ -35,6 +36,11 @@ def build_research_report(session: Session, job_id: str) -> str:
         select(CandidateGap).where(CandidateGap.research_job_id == job.id)
         .order_by(CandidateGap.created_at, CandidateGap.id)
     ).all()
+    automated_gaps = session.scalars(select(AutomatedProvisionalGap).where(
+        AutomatedProvisionalGap.research_job_id == job.id).order_by(AutomatedProvisionalGap.created_at, AutomatedProvisionalGap.id)).all()
+    automated_assessments = {item.claim_id: item for item in session.scalars(
+        select(AutomatedSemanticAssessment).join(ExtractedClaim).join(ModelRun, ExtractedClaim.model_run_id == ModelRun.id)
+        .where(ModelRun.research_job_id == job.id).order_by(AutomatedSemanticAssessment.assessed_at.desc())).all()}
 
     out = ["# Blindspot research report", "", "## Research topic", "", _line(job.topic), "", "## Included papers", ""]
     included = [link for link in links if link.included is True]
@@ -61,10 +67,13 @@ def build_research_report(session: Session, job_id: str) -> str:
     contradictions = []
     for claim in claims:
         review = current_human_review(claim)
+        automated = automated_assessments.get(claim.id)
         status = claim.verification_result.semantic_status.value if review else "unverified"
         out.extend([f"### {_line(claim.paper.title)} — {_line(claim.claim_type.value)}",
                     _line(claim.claim_text),
                     f"- Scientific support: {status}",
+                    f"- Automated semantic assessment: {_line(automated.assessment_status.value if automated else 'not assessed')} (not human review)",
+                    f"- Automated uncertainty: {_line(automated.uncertainty if automated else 'No automated assessment.')} ",
                     f"- Human review: {_line(review.get('reviewer') if review else None)}",
                     f"- Review rationale: {_line(review.get('rationale') if review else 'No current human review.')}",
                     f"- Uncertainty: {_line(claim.uncertainty_or_missing_information)}"])
@@ -80,6 +89,11 @@ def build_research_report(session: Session, job_id: str) -> str:
     for gap in gaps:
         out.extend([f"### {_line(gap.statement)}", f"- Category: {_line(gap.category)}", f"- Validation status: {_line(gap.validation_status)}", f"- Explanation: {_line(gap.explanation)}", f"- Counterevidence: {_line(gap.counterevidence)}", f"- Uncertainty: {_line(gap.uncertainty)}"])
         for reference in sorted(gap.references, key=lambda item: (item.role, item.paper_id, item.claim_id, item.claim_evidence_id)):
+            out.append(f"- {reference.role}: paper {reference.paper_id}; claim {reference.claim_id}; evidence {reference.claim_evidence_id}")
+    for gap in automated_gaps:
+        out.extend([f"### {_line(gap.statement)}", "- Validation status: Provisional — Not globally validated.",
+                    f"- Automated rationale: {_line(gap.rationale)}", f"- Uncertainty: {_line(gap.uncertainty)}"])
+        for reference in sorted(gap.references, key=lambda item: (item.role, item.paper_id, item.claim_id)):
             out.append(f"- {reference.role}: paper {reference.paper_id}; claim {reference.claim_id}; evidence {reference.claim_evidence_id}")
 
     out.extend(["", "## Conflicting evidence", ""])

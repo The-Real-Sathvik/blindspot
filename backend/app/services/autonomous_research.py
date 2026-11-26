@@ -6,12 +6,14 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.research import EvidenceChunk, ModelRun, ResearchJob, ResearchJobPaper, SearchRun, SourceDocument
+from app.models.research import EvidenceChunk, ExtractedClaim, ModelRun, ResearchJob, ResearchJobPaper, SearchRun, SourceDocument
 from app.schemas.research import JobStatus
 from app.schemas.research import AgentRole
 from app.services.claim_extraction_v3 import NoAdmissiblePassage, PROMPT_VERSION, run_development_extraction
 from app.services.document_attempts import job_document_state, perform_attempt
 from app.services.web_claims import ensure_processed_source
+from app.services.automated_semantic_assessment import assess as assess_claim
+from app.services.automated_provisional_gaps import run as run_provisional_gap
 
 
 @dataclass(frozen=True)
@@ -26,19 +28,29 @@ class AutonomousRunResult:
     claim_accepted: int = 0
     claim_abstained: int = 0
     claim_failed: int = 0
+    assessment_attempted: int = 0
+    assessment_supported: int = 0
+    assessment_failed: int = 0
+    provisional_gap_outcome: str | None = None
     limitation: str | None = None
 
 
 class AutonomousResearchOrchestrator:
     """Runs persisted stages sequentially; optional V3 execution is explicitly consent-gated by the API."""
     def __init__(self, discovery_factory, *, downloader_factory=None, claim_runner=None, claim_assignment=None,
-                 shortlist_limit: int = 5, max_claim_papers: int = 3, max_recovery_papers: int = 3):
+                 semantic_assignment=None, gap_assignment=None, shortlist_limit: int = 5,
+                 max_claim_papers: int = 3, max_assessment_claims: int = 3, max_gap_runs: int = 2,
+                 max_recovery_papers: int = 3):
         self.discovery_factory = discovery_factory
         self.downloader_factory = downloader_factory
         self.claim_runner = claim_runner
         self.claim_assignment = claim_assignment
+        self.semantic_assignment = semantic_assignment
+        self.gap_assignment = gap_assignment
         self.shortlist_limit = shortlist_limit
         self.max_claim_papers = max_claim_papers
+        self.max_assessment_claims = max_assessment_claims
+        self.max_gap_runs = max_gap_runs
         self.max_recovery_papers = max_recovery_papers
 
     def run(self, session: Session, job: ResearchJob) -> AutonomousRunResult:
@@ -183,16 +195,59 @@ class AutonomousResearchOrchestrator:
                     category = run.error_category if run is not None and run.error_category else "failed_inference"
                     link.error_info = f"[claim-extraction] {category}; no automatic retry was made."
                 session.commit()
+        assessment_attempted = assessment_supported = assessment_failed = 0
+        if self.claim_runner is not None and self.semantic_assignment is not None:
+            claims = session.scalars(select(ExtractedClaim).join(ModelRun, ExtractedClaim.model_run_id == ModelRun.id)
+                .where(ModelRun.research_job_id == job.id).order_by(ExtractedClaim.created_at, ExtractedClaim.id)
+                .limit(self.max_assessment_claims)).all()
+            for claim in claims:
+                try:
+                    if session.in_transaction():
+                        session.commit()
+                    result = assess_claim(session, job_id=job.id, claim_id=claim.id,
+                                          assignment=self.semantic_assignment, runner=self.claim_runner)
+                    session.commit()
+                    if not result.reused:
+                        assessment_attempted += 1
+                    if result.outcome == "assessed":
+                        # The persistent status, rather than quotation validity, controls Agent 2 eligibility.
+                        from app.models.research import AutomatedSemanticAssessment
+                        row = session.get(AutomatedSemanticAssessment, result.assessment_id) if result.assessment_id else None
+                        assessment_supported += int(row is not None and row.assessment_status.value == "supported")
+                    else:
+                        assessment_failed += 1
+                except Exception:
+                    session.rollback()
+                    assessment_failed += 1
+
+        provisional_gap_outcome = None
+        if self.claim_runner is not None and self.gap_assignment is not None and self.max_gap_runs:
+            allowed = frozenset(session.scalars(select(EvidenceChunk.id).join(SourceDocument)
+                .join(ResearchJobPaper, ResearchJobPaper.paper_id == SourceDocument.paper_id)
+                .where(ResearchJobPaper.research_job_id == job.id)).all())
+            try:
+                if session.in_transaction():
+                    session.commit()
+                _gap, provisional_gap_outcome = run_provisional_gap(
+                    session, job_id=job.id, allowed_chunk_ids=allowed,
+                    assignment=self.gap_assignment, runner=self.claim_runner)
+                session.commit()
+            except Exception:
+                session.rollback()
+                provisional_gap_outcome = "failed"
+
         job = session.get(ResearchJob, job.id)
         if evidence_ready:
             job.status, job.error_info = JobStatus.COMPLETED, None
             outcome = "complete"
-            limitation = ("Saved claim extraction ran only for bounded, source-verified evidence; "
-                          "semantic assessment and gap detection still require separate safeguards.")
+            limitation = ("Claim extraction and automated semantic assessment use bounded, source-verified evidence. "
+                          "Any automated gaps remain provisional and are not global-novelty findings.")
         else:
             job.status = JobStatus.COMPLETED
             job.error_info = "Automatic collection completed with insufficient full-text evidence. The report records this limitation."
             outcome, limitation = "insufficient_evidence", "No page-linked full-text evidence was prepared; abstracts remain preliminary metadata only."
         session.commit()
         return AutonomousRunResult(outcome, discovery, processed, evidence_ready, failed, abstract_available,
-                                   claim_attempted, claim_accepted, claim_abstained, claim_failed, limitation)
+                                   claim_attempted, claim_accepted, claim_abstained, claim_failed,
+                                   assessment_attempted, assessment_supported, assessment_failed,
+                                   provisional_gap_outcome, limitation)

@@ -8,13 +8,14 @@ from urllib.parse import urlparse
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, object_session
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from app.core.config import ConfigurationError, load_cloud_inference_settings, load_openalex_settings
 from app.db.session import create_session_factory, create_sqlite_engine
-from app.models.research import CandidateGap, ClaimEvidence, EvidenceChunk, ExtractedClaim, ModelRun, Paper, ResearchJob, ResearchJobPaper, SearchRun, SourceDocument
+from app.models.research import (AutomatedProvisionalGap, AutomatedSemanticAssessment, CandidateGap, ClaimEvidence,
+    EvidenceChunk, ExtractedClaim, ModelRun, Paper, ResearchJob, ResearchJobPaper, SearchRun, SourceDocument)
 from app.schemas.research import AgentRole, ResearchJobCreate
 from app.services.discovery_quality import OpenAlexSourceAdapter, QualityDiscoveryService
 from app.services.openalex import OpenAlexClient
@@ -107,7 +108,14 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
         searches = session.scalars(select(SearchRun).where(SearchRun.research_job_id == job_id).order_by(SearchRun.created_at.desc()).limit(20)).all()
         runs = session.scalars(select(ModelRun).where(ModelRun.research_job_id == job_id).order_by(ModelRun.created_at.desc()).limit(20)).all()
         papers = session.scalars(select(ResearchJobPaper).where(ResearchJobPaper.research_job_id == job_id)).all()
-        return {**job_json(job), "paper_count": len(papers), "shortlist_count": sum(p.included is True for p in papers), "searches": [{"source": r.source_name, "query": r.query_text, "retrieved": r.retrieved_count, "failed": bool(r.error_info)} for r in searches], "runs": [{"role": val(r.agent_role), "status": val(r.status), "outcome": val(r.outcome_status), "error_category": r.error_category} for r in runs], "warnings": ([job.error_info] if job.error_info else []), "stages": [{"name": "Paper discovery", "state": "complete" if searches else "not_started"}, {"name": "Full text & evidence", "state": "available" if any(p.paper.source_documents for p in papers) else "not_started"}, {"name": "Claim extraction", "state": "blocked", "detail": "Not run automatically. Source linkage is not semantic support."}, {"name": "Gap detection", "state": "blocked", "detail": "Requires human-supported claims from at least two papers; automated gaps are not generated in this slice."}]}
+        claim_count = session.scalar(select(func.count(ExtractedClaim.id)).join(ModelRun).where(ModelRun.research_job_id == job_id)) or 0
+        assessment_count = session.scalar(select(func.count(AutomatedSemanticAssessment.id)).join(ExtractedClaim).join(ModelRun).where(ModelRun.research_job_id == job_id)) or 0
+        auto_gap_count = session.scalar(select(func.count(AutomatedProvisionalGap.id)).where(AutomatedProvisionalGap.research_job_id == job_id)) or 0
+        evidence_paper_ids = sorted({paper.id for paper in (link.paper for link in papers) if any(doc.evidence_chunks for doc in paper.source_documents)})
+        return {**job_json(job), "paper_count": len(papers), "shortlist_count": sum(p.included is True for p in papers),
+                "analysis_paper_ids": evidence_paper_ids, "searches": [{"source": r.source_name, "query": r.query_text, "retrieved": r.retrieved_count, "failed": bool(r.error_info)} for r in searches],
+                "runs": [{"role": val(r.agent_role), "status": val(r.status), "outcome": val(r.outcome_status), "error_category": r.error_category} for r in runs], "warnings": ([job.error_info] if job.error_info else []),
+                "stages": [{"name": "Paper discovery", "state": "complete" if searches else "not_started"}, {"name": "Full text & evidence", "state": "complete" if evidence_paper_ids else "not_started"}, {"name": "Claim extraction", "state": "complete" if claim_count else "not_started"}, {"name": "Automated semantic assessment", "state": "complete" if assessment_count else ("blocked" if claim_count else "not_started"), "detail": "Automated support is distinct from human review."}, {"name": "Provisional gap detection", "state": "complete" if auto_gap_count else ("insufficient_evidence" if assessment_count else "not_started"), "detail": "Requires supported automated assessments from two distinct papers; outputs are not globally validated."}]}
 
     @app.post("/api/jobs/{job_id}/run", dependencies=[Depends(require_local_request)])
     def run_autonomous_job(job_id: str, body: AutonomousRunRequest, session: Session = Depends(db)):
@@ -123,20 +131,31 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
                 settings = load_cloud_inference_settings()
                 assignment = AgentModelAssignment(provider=InferenceProvider.GEMINI, model_tag='gemini-3.5-flash-lite',
                     output_tokens=512, gemini_response_mode='plain_text', prompt_template_version=PROMPT_VERSION)
-                budget = CloudBudget(max_requests=3, max_output_tokens_total=1536)
-                runner = CloudInferenceRouter(BlindspotModelConfig(claim_extraction=assignment), settings,
+                semantic_assignment = AgentModelAssignment(provider=InferenceProvider.GEMINI, model_tag='gemini-3.5-flash-lite',
+                    output_tokens=512, gemini_response_mode='prompt_json', prompt_template_version='automated-semantic-assessment-v1')
+                gap_assignment = AgentModelAssignment(provider=InferenceProvider.GEMINI, model_tag='gemini-3.5-flash-lite',
+                    output_tokens=512, gemini_response_mode='prompt_json', prompt_template_version='automated-provisional-gap-v1')
+                # One shared server-side budget covers all autonomous cloud roles:
+                # three claims, three assessments, and at most two Agent 2 calls.
+                budget = CloudBudget(max_requests=8, max_output_tokens_total=4096)
+                runner = CloudInferenceRouter(BlindspotModelConfig(claim_extraction=assignment,
+                    semantic_review=semantic_assignment, gap_detection=gap_assignment), settings,
                     gemini=GeminiClient(api_key=settings.gemini_api_key, budget=budget))
                 factory = lambda: AutonomousResearchOrchestrator(
                     lambda: discovery_factory() if discovery_factory else QualityDiscoveryService(OpenAlexSourceAdapter(OpenAlexClient(load_openalex_settings())),),
                     downloader_factory=fulltext_downloader_factory, claim_runner=runner, claim_assignment=assignment,
-                    max_claim_papers=3,
+                    semantic_assignment=semantic_assignment, gap_assignment=gap_assignment,
+                    max_claim_papers=3, max_assessment_claims=3, max_gap_runs=2,
                 )
             result = factory().run(session, job)
             return {"status": result.outcome, "discovery": result.discovery, "processed": result.processed,
                     "evidence_ready": result.evidence_ready, "failed_documents": result.failed_documents,
                     "abstract_available": result.abstract_available, "claim_attempted": result.claim_attempted,
                     "claim_accepted": result.claim_accepted, "claim_abstained": result.claim_abstained,
-                    "claim_failed": result.claim_failed, "limitation": result.limitation}
+                    "claim_failed": result.claim_failed, "assessment_attempted": result.assessment_attempted,
+                    "assessment_supported": result.assessment_supported, "assessment_failed": result.assessment_failed,
+                    "provisional_gap_outcome": result.provisional_gap_outcome, "cloud_request_limit": 8,
+                    "limitation": result.limitation}
         finally:
             PROCESSING_LOCK.release()
 
