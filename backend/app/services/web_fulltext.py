@@ -5,6 +5,8 @@ Only stored metadata pointing to approved PDF endpoints is accepted.
 from pathlib import Path
 import http.client
 import ipaddress
+import logging
+import os
 import re
 import socket
 from threading import Lock
@@ -23,6 +25,21 @@ from app.services.fulltext import DownloadError, ExtractionError, FullTextServic
 MAX_PAGES = 300
 DOWNLOAD_DEADLINE_SECONDS = 45
 PROCESSING_LOCK = Lock()
+logger = logging.getLogger(__name__)
+
+
+def _log_development_acquisition_exception(error: Exception, *, paper_id: str) -> None:
+    """Emit a local traceback only when a developer explicitly enables it.
+
+    The durable attempt remains sanitized; the log intentionally substitutes the
+    exception value so arbitrary source messages, URLs, and response content are
+    not emitted.
+    """
+    if os.getenv('BLINDSPOT_LOG_DOCUMENT_EXCEPTIONS', '').strip().casefold() != 'true':
+        return
+    safe_error = RuntimeError(type(error).__name__)
+    logger.exception('Blindspot PDF acquisition failed (paper_id=%s).', paper_id,
+                     exc_info=(RuntimeError, safe_error, error.__traceback__))
 
 
 def approved_pdf_url(url: str) -> bool:
@@ -113,7 +130,10 @@ class PublicHTTPSConnection(http.client.HTTPSConnection):
 
 class PublicHTTPSHandler(HTTPSHandler):
     def https_open(self, request):
-        return self.do_open(PublicHTTPSConnection, request, context=self._context, check_hostname=self._check_hostname)
+        # Python 3.12's HTTPSHandler exposes its verified SSL context but no
+        # `_check_hostname` attribute. Passing that absent implementation detail
+        # prevented every outbound HTTPS acquisition before a request was sent.
+        return self.do_open(PublicHTTPSConnection, request, context=self._context)
 
 
 class RestrictedRedirect(HTTPRedirectHandler):
@@ -231,6 +251,7 @@ def acquire(session, paper, *, downloader=None):
         document.source_url, document.status, document.error_info = downloaded.final_url, DocumentStatus.PENDING, None
         session.flush()
     except Exception as error:
+        _log_development_acquisition_exception(error, paper_id=paper.id)
         # This exact path was uniquely created for the failed attempt only.
         target.unlink(missing_ok=True)
         failure = classify_download_exception(error)

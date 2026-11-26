@@ -9,13 +9,14 @@ test('preparation counts distinguish saved evidence, processable links and unsup
   const papers=[{document:{status:'extracted'}},{document:{status:'downloaded',can_extract:true}},
     {document:{status:'available_for_acquisition',source:'arXiv repository',can_acquire:true}},
     {open_access:true,document:{status:'unsupported'}},{document:{status:'unavailable'}},{}];
-  assert.deepEqual(preparationSummary(papers),{ready:1,processing:2,needs_pdf:2,unknown:1});
+  assert.deepEqual(preparationSummary(papers),{ready:1,processing:2,needs_pdf:2,failed:0,unknown:1});
   assert.match(preparationStatus(papers[2]).availability,/Eligible arXiv/);
   assert.equal(preparationStatus(papers[3]).availability,'OA reported; PDF unsupported');
 });
 
 test('failed PDF processing and missing backend state stay explicit',()=>{
   assert.equal(preparationStatus({document:{status:'failed',can_extract:true}}).processing,'Processing failed');
+  assert.equal(preparationStatus({document:{status:'failed',can_extract:true}}).group,'failed');
   assert.equal(preparationStatus({}).group,'unknown');
 });
 

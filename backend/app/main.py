@@ -43,6 +43,11 @@ class ClaimExtractionRequest(BaseModel):
     cloud_consent: StrictBool
 
 
+class AutonomousRunRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    cloud_consent: StrictBool
+
+
 class GapDetectionRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     cloud_consent: StrictBool
@@ -105,19 +110,33 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
         return {**job_json(job), "paper_count": len(papers), "shortlist_count": sum(p.included is True for p in papers), "searches": [{"source": r.source_name, "query": r.query_text, "retrieved": r.retrieved_count, "failed": bool(r.error_info)} for r in searches], "runs": [{"role": val(r.agent_role), "status": val(r.status), "outcome": val(r.outcome_status), "error_category": r.error_category} for r in runs], "warnings": ([job.error_info] if job.error_info else []), "stages": [{"name": "Paper discovery", "state": "complete" if searches else "not_started"}, {"name": "Full text & evidence", "state": "available" if any(p.paper.source_documents for p in papers) else "not_started"}, {"name": "Claim extraction", "state": "blocked", "detail": "Not run automatically. Source linkage is not semantic support."}, {"name": "Gap detection", "state": "blocked", "detail": "Requires human-supported claims from at least two papers; automated gaps are not generated in this slice."}]}
 
     @app.post("/api/jobs/{job_id}/run", dependencies=[Depends(require_local_request)])
-    def run_autonomous_job(job_id: str, session: Session = Depends(db)):
+    def run_autonomous_job(job_id: str, body: AutonomousRunRequest, session: Session = Depends(db)):
         job = job_or_404(session, job_id)
+        if not body.cloud_consent:
+            raise HTTPException(403, 'Explicit cloud-research consent is required.')
         if not PROCESSING_LOCK.acquire(blocking=False):
             raise HTTPException(409, "Another local document workflow is in progress.")
         try:
-            factory = orchestrator_factory or (lambda: AutonomousResearchOrchestrator(
-                lambda: discovery_factory() if discovery_factory else QualityDiscoveryService(OpenAlexSourceAdapter(OpenAlexClient(load_openalex_settings())),),
-                downloader_factory=fulltext_downloader_factory,
-            ))
+            if orchestrator_factory:
+                factory = orchestrator_factory
+            else:
+                settings = load_cloud_inference_settings()
+                assignment = AgentModelAssignment(provider=InferenceProvider.GEMINI, model_tag='gemini-3.5-flash-lite',
+                    output_tokens=512, gemini_response_mode='plain_text', prompt_template_version=PROMPT_VERSION)
+                budget = CloudBudget(max_requests=3, max_output_tokens_total=1536)
+                runner = CloudInferenceRouter(BlindspotModelConfig(claim_extraction=assignment), settings,
+                    gemini=GeminiClient(api_key=settings.gemini_api_key, budget=budget))
+                factory = lambda: AutonomousResearchOrchestrator(
+                    lambda: discovery_factory() if discovery_factory else QualityDiscoveryService(OpenAlexSourceAdapter(OpenAlexClient(load_openalex_settings())),),
+                    downloader_factory=fulltext_downloader_factory, claim_runner=runner, claim_assignment=assignment,
+                    max_claim_papers=3,
+                )
             result = factory().run(session, job)
             return {"status": result.outcome, "discovery": result.discovery, "processed": result.processed,
                     "evidence_ready": result.evidence_ready, "failed_documents": result.failed_documents,
-                    "abstract_available": result.abstract_available, "limitation": result.limitation}
+                    "abstract_available": result.abstract_available, "claim_attempted": result.claim_attempted,
+                    "claim_accepted": result.claim_accepted, "claim_abstained": result.claim_abstained,
+                    "claim_failed": result.claim_failed, "limitation": result.limitation}
         finally:
             PROCESSING_LOCK.release()
 

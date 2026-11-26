@@ -13,7 +13,7 @@ from app.db.session import create_session_factory, create_sqlite_engine
 from app.main import create_app
 from app.models.research import Paper, ResearchJobPaper
 from app.services.fulltext import PdfDownloader, UnsafeUrlError
-from app.services.web_fulltext import DeadlineResponse, PROCESSING_LOCK, RestrictedRedirect, approved_pdf_url
+from app.services.web_fulltext import DeadlineResponse, PROCESSING_LOCK, PublicHTTPSConnection, PublicHTTPSHandler, RestrictedRedirect, approved_pdf_url
 from app.services.document_attempts import _log_development_exception
 
 
@@ -155,6 +155,17 @@ def test_download_wall_clock_deadline(monkeypatch):
     with pytest.raises(TimeoutError): response.read(5)
 
 
+def test_public_https_handler_uses_verified_context_without_private_handler_attribute(monkeypatch):
+    handler = PublicHTTPSHandler()
+    captured = {}
+    def fake_do_open(connection, request, **kwargs):
+        captured.update(connection=connection, request=request, kwargs=kwargs)
+        return 'opened'
+    monkeypatch.setattr(handler, 'do_open', fake_do_open)
+    assert handler.https_open('request') == 'opened'
+    assert captured == {'connection': PublicHTTPSConnection, 'request': 'request', 'kwargs': {'context': handler._context}}
+
+
 @pytest.mark.parametrize('error,code,stage,retryable,http_status', [
     (URLError(socket.gaierror('sensitive hostname')), 'dns_error', 'download', True, None),
     (URLError(ssl.SSLError('sensitive certificate')), 'tls_error', 'download', None, None),
@@ -185,6 +196,19 @@ def test_attempt_failure_categories_persist_without_raw_errors(setup_web, error,
             assert attempt.research_job_id == job and attempt.paper_id == paper_id
             assert attempt.started_at and attempt.completed_at and attempt.outcome == 'failed'
             assert session.scalars(select(SourceDocument)).all() == []
+
+
+def test_unexpected_acquisition_failure_has_opt_in_sanitized_traceback(setup_web, monkeypatch, caplog):
+    create, factory = setup_web; _client, job, paper_id, _ = create(sample_pdf())
+    monkeypatch.setenv('BLINDSPOT_LOG_DOCUMENT_EXCEPTIONS', 'true')
+    caplog.set_level('ERROR', logger='app.services.web_fulltext')
+    def opener(*_args, **_kwargs):
+        raise RuntimeError('sensitive source response')
+    app = create_app(session_factory=factory, fulltext_downloader_factory=lambda: PdfDownloader(opener=opener))
+    with TestClient(app, headers={'X-Blindspot-Request':'1'}) as api:
+        assert api.post(f'/api/jobs/{job}/papers/{paper_id}/acquire').json()['attempt']['code'] == 'unexpected_server_error'
+    assert 'Blindspot PDF acquisition failed' in caplog.text
+    assert caplog.records[-1].exc_info[1].args == ('RuntimeError',)
 
 
 def test_manual_retry_success_is_recorded_and_complete_is_idempotent(setup_web):
