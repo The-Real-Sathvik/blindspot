@@ -10,3 +10,14 @@ export function availabilitySummary(paper) {
 export function eligibleAlternatives(papers) {
   return papers.filter(p => p.included !== true && (p.document?.can_acquire || p.document?.can_extract || p.document?.status === 'extracted'));
 }
+
+// Alternatives remain outside the scholarly shortlist. This exposes their
+// separate source-preparation state without promoting them or implying that a
+// claim-analysis run used them.
+export function alternativePreparationSummary(papers) {
+  const alternatives = (papers || []).filter(p => p.included !== true);
+  return {
+    evidenceReady: alternatives.filter(p => p.document?.status === 'extracted').length,
+    failed: alternatives.filter(p => p.document?.status === 'failed').length,
+  };
+}

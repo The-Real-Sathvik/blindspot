@@ -26,6 +26,19 @@ test('unavailable PDFs and failed search offer concrete navigation', () => {
   assert.equal(alternatives.action.kind,'review_alternative'); assert.equal(alternatives.alternatives[0].id,'other');
 });
 
+test('verified alternative evidence completes preparation without rewriting the shortlist', () => {
+  const details={searches:[{failed:false}],runs:[],status:'completed'};
+  const papers=[
+    {id:'short',included:true,document:{status:'unsupported'}},
+    {id:'alternative',included:false,document:{status:'extracted'}},
+  ];
+  const docs=[{paper_id:'alternative',claims_available:true,chunks:[{id:'chunk'}]}];
+  const state=threadState({details,papers,docs});
+  assert.equal(state.states.fulltext,'completed_with_alternatives');
+  assert.equal(papers[0].included,true);
+  assert.equal(papers[1].included,false);
+});
+
 test('saved claim source is resolved only within current documents', () => {
   const claim={evidence:[{chunk_id:'c',quotation:'exact'}]};
   assert.equal(sourceForClaim(claim,[{paper_id:'a',chunks:[{id:'c'}]}]).quotation,'exact');

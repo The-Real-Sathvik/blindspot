@@ -130,10 +130,12 @@ def test_autonomous_recovery_processes_eligible_alternatives_without_changing_sh
     shortlist = Paper(title='Relevant but no permitted source', authors=[], openalex_id='W-short', open_access_metadata={})
     failed = Paper(title='First permitted alternative', authors=[], openalex_id='W-first', open_access_metadata={})
     recovered = Paper(title='Second permitted alternative', authors=[], openalex_id='W-second', open_access_metadata={})
+    unused = Paper(title='Third permitted alternative', authors=[], openalex_id='W-third', open_access_metadata={})
     links = [
         ResearchJobPaper(research_job=job, paper=shortlist, included=True, relevance_score=1.0),
         ResearchJobPaper(research_job=job, paper=failed, included=False, relevance_score=.9),
         ResearchJobPaper(research_job=job, paper=recovered, included=False, relevance_score=.8),
+        ResearchJobPaper(research_job=job, paper=unused, included=False, relevance_score=.7),
     ]
     session.add_all([job, *links]); session.flush()
     session.add(SearchRun(research_job=job, source_name='fixture', query_text='fixture', requested_limit=3)); session.commit()
@@ -141,6 +143,7 @@ def test_autonomous_recovery_processes_eligible_alternatives_without_changing_sh
         shortlist.id: {'status': 'unavailable', 'can_acquire': False, 'can_extract': False},
         failed.id: {'status': 'available_for_acquisition', 'can_acquire': True, 'can_extract': False},
         recovered.id: {'status': 'available_for_acquisition', 'can_acquire': True, 'can_extract': False},
+        unused.id: {'status': 'available_for_acquisition', 'can_acquire': True, 'can_extract': False},
     }
     calls = []
     monkeypatch.setattr('app.services.autonomous_research.job_document_state', lambda _s, _j, paper: states[paper.id])
@@ -156,7 +159,7 @@ def test_autonomous_recovery_processes_eligible_alternatives_without_changing_sh
         return states[paper.id]
     monkeypatch.setattr('app.services.autonomous_research.perform_attempt', attempt)
 
-    result = AutonomousResearchOrchestrator(lambda: None, max_recovery_papers=2).run(session, job)
+    result = AutonomousResearchOrchestrator(lambda: None, max_recovery_papers=3).run(session, job)
 
     assert calls == [(failed.id, 'acquire'), (recovered.id, 'acquire'), (recovered.id, 'extract')]
     assert result.evidence_ready == 1 and result.failed_documents == 1
@@ -184,3 +187,29 @@ def test_autonomous_recovery_respects_candidate_budget_and_skips_prior_failed_at
     monkeypatch.setattr('app.services.autonomous_research.perform_attempt', lambda *_args, **_kwargs: calls.append(True))
     result = AutonomousResearchOrchestrator(lambda: None, max_recovery_papers=1).run(session, job)
     assert calls == [] and result.evidence_ready == 0 and result.failed_documents == 1
+
+
+def test_autonomous_legacy_recovered_evidence_reaches_v3_with_fresh_transaction(session, monkeypatch):
+    """A pre-ModelRun legacy checkpoint is retried once after source recovery."""
+    job = ResearchJob(topic='Legacy handoff recovery')
+    shortlisted = Paper(title='No supported source', authors=[], openalex_id='W-short', open_access_metadata={})
+    recovered = Paper(title='Recovered source', authors=[], openalex_id='W-recovered', open_access_metadata={})
+    document = SourceDocument(paper=recovered, document_type='pdf', status=DocumentStatus.AVAILABLE, local_path='fixture.pdf')
+    chunk = EvidenceChunk(source_document=document, page_number=1, chunk_index=0, start_offset=0, end_offset=29, text='A complete source-grounded finding.')
+    legacy = ResearchJobPaper(research_job=job, paper=recovered, included=False, relevance_score=.9,
+                              error_info='[claim-extraction] source validation blocked automatic analysis.')
+    session.add_all([job, ResearchJobPaper(research_job=job, paper=shortlisted, included=True, relevance_score=1), legacy, chunk])
+    session.flush(); session.add(SearchRun(research_job=job, source_name='fixture', query_text='fixture', requested_limit=2)); session.commit()
+    monkeypatch.setattr('app.services.autonomous_research.job_document_state', lambda _s, _j, paper: {'status':'extracted'} if paper.id == recovered.id else {'status':'unavailable'})
+    calls = []
+    def fake_v3(db, **kwargs):
+        calls.append(kwargs['chunk_id'])
+        assert not db.in_transaction()
+        return SimpleNamespace(model_run_id='missing-run', outcome='no_claims', accepted_count=0)
+    monkeypatch.setattr('app.services.autonomous_research.run_development_extraction', fake_v3)
+    assignment = AgentModelAssignment(provider='gemini', model_tag='gemini-3.5-flash-lite', output_tokens=512,
+        gemini_response_mode='plain_text', prompt_template_version='claim-extraction-v3')
+    result = AutonomousResearchOrchestrator(lambda: None, claim_runner=object(), claim_assignment=assignment).run(session, job)
+    assert calls == [chunk.id] and result.claim_attempted == 1 and result.claim_abstained == 1
+    session.refresh(legacy)
+    assert legacy.error_info.startswith('[claim-extraction] abstained')

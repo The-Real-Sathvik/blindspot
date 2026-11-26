@@ -11,6 +11,7 @@ export function threadState(bundle, {busy = '', failures = {}, needsRefresh = fa
   const eligible = shortlist.filter(p => p.document?.status !== 'failed' && !['failed','started'].includes(p.document?.attempt?.outcome) && (p.document?.can_acquire || p.document?.can_extract));
   const failed = shortlist.find(p => p.document?.attempt?.outcome === 'failed' || p.document?.attempt?.outcome === 'started');
   const alternatives = papers.filter(p => p.included !== true && (p.document?.can_acquire || p.document?.can_extract || p.document?.status === 'extracted'));
+  const recoveredEvidence = alternatives.filter(p => p.document?.status === 'extracted');
   const chunks = docs.flatMap(d => (d.chunks || []).map(c => ({document:d, chunk:c})));
   const usable = chunks.filter(x => x.document.claims_available);
   const complete = shortlist.filter(p => p.document?.status === 'extracted');
@@ -20,7 +21,7 @@ export function threadState(bundle, {busy = '', failures = {}, needsRefresh = fa
   const states = {
     topic:'completed',
     papers:busy === 'discover' ? 'in_progress' : failures.papers ? 'failed' : details?.searches?.[0]?.failed ? (papers.length ? 'partial' : 'failed') : discovered ? 'completed' : 'not_started',
-    fulltext:['acquire','extract','prepare','upload'].includes(busy) ? 'in_progress' : failures.evidence ? 'failed' : complete.length && complete.length === shortlist.length ? 'completed' : chunks.length ? 'partial' : !papers.length ? 'blocked' : shortlist.some(p=>p.document?.status==='failed') ? 'failed' : eligible.length ? 'not_started' : 'blocked',
+    fulltext:['acquire','extract','prepare','upload'].includes(busy) ? 'in_progress' : failures.evidence ? 'failed' : complete.length && complete.length === shortlist.length ? 'completed' : recoveredEvidence.length && details?.status === 'completed' ? 'completed_with_alternatives' : chunks.length ? 'partial' : !papers.length ? 'blocked' : shortlist.some(p=>p.document?.status==='failed') ? 'failed' : eligible.length ? 'not_started' : 'blocked',
     evidence:chunks.length ? 'completed' : 'blocked',
     findings:busy === 'claims' ? 'in_progress' : claims.length ? 'completed' : latest?.outcome === 'no_claims' ? 'abstained' : latest?.status === 'failed' || latest?.outcome === 'partial_error' ? 'failed' : usable.length ? 'not_started' : 'blocked',
     gaps:busy === 'gaps' ? 'in_progress' : gaps.length ? 'completed' : supportedPapers.size >= 2 ? 'not_started' : 'insufficient_evidence',

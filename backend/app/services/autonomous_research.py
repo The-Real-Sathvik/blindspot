@@ -111,6 +111,10 @@ class AutonomousResearchOrchestrator:
                 state = prepare(alternative)
                 if state["status"] == "extracted":
                     claim_links.append(alternative)
+                    # One source-verified alternative is sufficient to begin
+                    # bounded claim extraction. Do not download further PDFs
+                    # merely because recovery candidates remain available.
+                    break
 
         claim_attempted = claim_accepted = claim_abstained = claim_failed = 0
         if self.claim_runner is not None and self.claim_assignment is not None:
@@ -119,7 +123,12 @@ class AutonomousResearchOrchestrator:
                     break
                 # Checkpoint every terminal per-paper attempt. Failed calls are
                 # not retried automatically on a later autonomous run.
-                if (link.error_info or "").startswith("[claim-extraction]"):
+                checkpoint = link.error_info or ""
+                # Older autonomous runs collapsed the fresh-session preflight
+                # error into this source-validation marker before ModelRun
+                # creation. Re-evaluate that one legacy marker once; all new,
+                # specific terminal checkpoints remain non-retryable.
+                if checkpoint.startswith("[claim-extraction]") and checkpoint != "[claim-extraction] source validation blocked automatic analysis.":
                     continue
                 document = session.scalar(select(SourceDocument).where(
                     SourceDocument.paper_id == link.paper_id
@@ -132,6 +141,12 @@ class AutonomousResearchOrchestrator:
                 result = None
                 for chunk in chunks:
                     try:
+                        # V3 owns its SQLite transaction (BEGIN IMMEDIATE).
+                        # Finish orchestration reads/writes before transferring
+                        # transaction ownership, otherwise V3 rejects the call
+                        # before it can record a ModelRun.
+                        if session.in_transaction():
+                            session.commit()
                         result = run_development_extraction(
                             session, job_id=job.id, chunk_id=chunk.id,
                             development_chunk_ids=frozenset([chunk.id]), assignment=self.claim_assignment,
@@ -141,10 +156,11 @@ class AutonomousResearchOrchestrator:
                     except NoAdmissiblePassage:
                         session.rollback()
                         continue
-                    except Exception:
+                    except Exception as error:
                         session.rollback()
                         link = session.get(ResearchJobPaper, link.id)
-                        link.error_info = "[claim-extraction] source validation blocked automatic analysis."
+                        category = "source_validation_failed" if error.__class__.__name__ == "HTTPException" else "local_preflight_failed"
+                        link.error_info = f"[claim-extraction] {category}; no automatic retry was made."
                         session.commit()
                         result = False
                     break
