@@ -142,6 +142,23 @@ class NoAdmissiblePassage(ValueError):
     """No complete source span fits the configured provider request budget."""
 
 
+_ABBREVIATION = re.compile(r'(?:\b(?:[A-Z]\.){2,}|\b(?:Dr|Mr|Mrs|Ms|Prof|Fig|Eq|Eqs|et al|e\.g|i\.e)\.)$', re.IGNORECASE)
+
+
+def is_complete_interior_span(candidates: list[EvidenceSpan], index: int) -> bool:
+    """Reject chunk-edge fragments and obvious headings, labels and abbreviations.
+
+    This is the source-text admissibility rule used by ``select_evidence_spans``;
+    it is shared so offline retrieval scores exactly the spans V3 can send.
+    """
+    span = candidates[index]
+    if span.boundary_uncertain or not span.text[0].isupper() or span.text[-1] not in ".!?" or len(re.findall(r"[^\W\d_]+", span.text, re.UNICODE)) < 4:
+        return False
+    if _ABBREVIATION.search(span.text) or (index and _ABBREVIATION.search(candidates[index - 1].text)):
+        return False
+    return True
+
+
 def select_evidence_spans(chunk: EvidenceChunk, page_text: str, assignment: AgentModelAssignment, *, max_spans: int = 3, plain_text_contract: bool = False) -> list[EvidenceSpan]:
     """Select interior sentence candidates without changing their source coordinates.
 
@@ -155,12 +172,8 @@ def select_evidence_spans(chunk: EvidenceChunk, page_text: str, assignment: Agen
     ceiling = min(assignment.input_tokens, assignment.context_tokens - assignment.output_tokens)
     selected, seen = [], set()
     candidates = generate_evidence_spans(chunk)
-    abbreviation = re.compile(r'(?:\b(?:[A-Z]\.){2,}|\b(?:Dr|Mr|Mrs|Ms|Prof|Fig|Eq|Eqs|et al|e\.g|i\.e)\.)$', re.IGNORECASE)
     for index, span in enumerate(candidates):
-        # Reject chunk-edge fragments and obvious headings, labels and abbreviations.
-        if span.boundary_uncertain or not span.text[0].isupper() or span.text[-1] not in ".!?" or len(re.findall(r"[^\W\d_]+", span.text, re.UNICODE)) < 4:
-            continue
-        if abbreviation.search(span.text) or (index and abbreviation.search(candidates[index - 1].text)):
+        if not is_complete_interior_span(candidates, index):
             continue
         if span.evidence_id in seen:
             continue
