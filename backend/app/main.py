@@ -113,7 +113,7 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
         evidence_paper_ids = workflow["analysis_paper_ids"]
         return {**job_json(job), "paper_count": len(papers), "shortlist_count": sum(p.included is True for p in papers),
                 "analysis_paper_ids": evidence_paper_ids, "workflow": workflow, "searches": [{"source": r.source_name, "query": r.query_text, "retrieved": r.retrieved_count, "failed": bool(r.error_info)} for r in searches],
-                "runs": [{"role": val(r.agent_role), "status": val(r.status), "outcome": val(r.outcome_status), "error_category": r.error_category} for r in runs], "warnings": ([job.error_info] if job.error_info else []),
+                "runs": [{"role": val(r.agent_role), "status": val(r.status), "outcome": r.model_config.get("agent_outcome", val(r.outcome_status)), "error_category": r.error_category} for r in runs], "warnings": ([job.error_info] if job.error_info else []),
                 "stages": [{"name": "Research topic", "state": "complete"}, {"name": "Paper discovery & full-text preparation", "state": workflow["stages"]["preparation"]["processing"], "detail": workflow["stages"]["preparation"]["detail"]}, {"name": "Evidence", "state": workflow["stages"]["evidence"]["processing"], "detail": workflow["stages"]["evidence"]["detail"]}, {"name": "Findings", "state": workflow["stages"]["findings"]["processing"], "detail": workflow["stages"]["findings"]["detail"]}, {"name": "Research gaps", "state": workflow["stages"]["gaps"]["processing"], "detail": workflow["stages"]["gaps"]["detail"]}]}
 
     @app.post("/api/jobs/{job_id}/run", dependencies=[Depends(require_local_request)])
@@ -127,16 +127,38 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
             if orchestrator_factory:
                 factory = orchestrator_factory
             else:
+                previous_runs = session.scalars(select(ModelRun).where(ModelRun.research_job_id == job.id)).all()
+                cloud_runs = []
+                for previous in previous_runs:
+                    config = previous.model_config if isinstance(previous.model_config, dict) else {}
+                    if config.get("provider") not in {"gemini", "groq", "openrouter"}:
+                        continue
+                    if previous.error_category in {"CloudInputLimitError", "CloudConfigurationError"}:
+                        continue
+                    if previous.error_category == "CloudQuotaError" and not config.get("http_diagnostics"):
+                        continue
+                    cloud_runs.append(previous)
+                requests_remaining = 8 - len(cloud_runs)
+                output_tokens_reserved = sum(
+                    run.model_config.get("output_tokens", 0)
+                    for run in cloud_runs
+                    if isinstance(run.model_config, dict)
+                    and type(run.model_config.get("output_tokens", 0)) is int
+                    and run.model_config.get("output_tokens", 0) > 0
+                )
+                output_tokens_remaining = 4096 - output_tokens_reserved
+                if requests_remaining <= 0 or output_tokens_remaining < 512:
+                    raise HTTPException(409, "This job has exhausted its shared eight-request or 4096-output-token cloud budget.")
                 settings = load_cloud_inference_settings()
                 assignment = AgentModelAssignment(provider=InferenceProvider.GEMINI, model_tag='gemini-3.5-flash-lite',
                     output_tokens=512, gemini_response_mode='plain_text', prompt_template_version=PROMPT_VERSION)
                 semantic_assignment = AgentModelAssignment(provider=InferenceProvider.GEMINI, model_tag='gemini-3.5-flash-lite',
-                    output_tokens=512, gemini_response_mode='prompt_json', prompt_template_version='automated-semantic-assessment-v1')
+                    output_tokens=512, gemini_response_mode='plain_text', prompt_template_version='automated-semantic-assessment-v2')
                 gap_assignment = AgentModelAssignment(provider=InferenceProvider.GEMINI, model_tag='gemini-3.5-flash-lite',
-                    output_tokens=512, gemini_response_mode='prompt_json', prompt_template_version='automated-provisional-gap-v1')
+                    output_tokens=512, gemini_response_mode='plain_text', prompt_template_version='automated-provisional-gap-v2')
                 # One shared server-side budget covers all autonomous cloud roles:
-                # three claims, three assessments, and at most two Agent 2 calls.
-                budget = CloudBudget(max_requests=8, max_output_tokens_total=4096)
+                # three claims, three assessments, and one compact Agent 2 request.
+                budget = CloudBudget(max_requests=requests_remaining, max_output_tokens_total=output_tokens_remaining)
                 runner = CloudInferenceRouter(BlindspotModelConfig(claim_extraction=assignment,
                     semantic_review=semantic_assignment, gap_detection=gap_assignment), settings,
                     gemini=GeminiClient(api_key=settings.gemini_api_key, budget=budget))
@@ -318,6 +340,12 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
         job_or_404(session, job_id)
         synchronize_finalized_analysis_set(session, job_id)
         rows = session.scalars(select(ExtractedClaim).join(ModelRun, ExtractedClaim.model_run_id == ModelRun.id).join(ResearchJobPaper, ResearchJobPaper.paper_id == ExtractedClaim.paper_id).where(ModelRun.research_job_id == job_id, ModelRun.agent_role == AgentRole.CLAIM_EXTRACTION, ResearchJobPaper.research_job_id == job_id, ResearchJobPaper.analysis_selected.is_(True)).order_by(ExtractedClaim.created_at.desc()).limit(100)).all()
+        automated_rows = session.scalars(select(AutomatedSemanticAssessment).join(ExtractedClaim).join(
+            ModelRun, AutomatedSemanticAssessment.model_run_id == ModelRun.id
+        ).where(ModelRun.research_job_id == job_id).order_by(AutomatedSemanticAssessment.assessed_at.desc())).all()
+        automated_latest = {}
+        for assessment in automated_rows:
+            automated_latest.setdefault(assessment.claim_id, assessment)
         def visible_review(claim):
             review=current_human_review(claim)
             if review is None: return None
@@ -328,7 +356,22 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
         result=[]
         for c in rows:
             review=visible_review(c)
-            result.append({"id": c.id, "statement": c.claim_text, "category": val(c.claim_type), "paper_id": c.paper_id, "paper_title": c.paper.title, "uncertainty": c.uncertainty_or_missing_information, "semantic_status": val(c.verification_result.semantic_status) if review else "unverified", "semantic_review": {"method":"human", "reviewer":review['reviewer'], "rationale":review['rationale'], "reviewed_at":review['reviewed_at']} if review else None, "review_locked": c.verification_result is not None, "evidence": [{"id": e.id, "chunk_id": e.evidence_chunk_id, "quotation": e.quotation_text, "page": e.evidence_chunk.page_number, "quotation_status": val(e.quotation_status), "location_status": val(e.source_location_status)} for e in c.evidence_links]})
+            automated = automated_latest.get(c.id)
+            result.append({
+                "id": c.id, "statement": c.claim_text, "category": val(c.claim_type),
+                "paper_id": c.paper_id, "paper_title": c.paper.title,
+                "uncertainty": c.uncertainty_or_missing_information,
+                "semantic_status": val(c.verification_result.semantic_status) if review else "unverified",
+                "automated_assessment_status": val(automated.assessment_status) if automated else None,
+                "automated_assessment_rationale": automated.rationale if automated else None,
+                "automated_assessment_uncertainty": automated.uncertainty if automated else None,
+                "semantic_review": {"method": "human", "reviewer": review["reviewer"],
+                                    "rationale": review["rationale"], "reviewed_at": review["reviewed_at"]} if review else None,
+                "review_locked": c.verification_result is not None,
+                "evidence": [{"id": e.id, "chunk_id": e.evidence_chunk_id, "quotation": e.quotation_text,
+                              "page": e.evidence_chunk.page_number, "quotation_status": val(e.quotation_status),
+                              "location_status": val(e.source_location_status)} for e in c.evidence_links],
+            })
         return result
 
     @app.post('/api/jobs/{job_id}/claims/{claim_id}/semantic-review', dependencies=[Depends(require_local_request)])
@@ -404,7 +447,7 @@ def create_app(session_factory=None, discovery_factory=None, fulltext_downloader
         rows = session.scalars(select(CandidateGap).where(CandidateGap.research_job_id == job_id).order_by(CandidateGap.created_at.desc()).limit(100)).all()
         automated = session.scalars(select(AutomatedProvisionalGap).where(AutomatedProvisionalGap.research_job_id == job_id).order_by(AutomatedProvisionalGap.created_at.desc()).limit(100)).all()
         return ([{"id": g.id, "statement": g.statement, "category": g.category, "explanation": g.explanation, "counterevidence": g.counterevidence, "uncertainty": g.uncertainty, "validation_status": g.validation_status, "references": [{"paper_id": r.paper_id, "claim_id": r.claim_id, "evidence_id": r.claim_evidence_id, "role": r.role} for r in g.references]} for g in rows] +
-                [{"id": g.id, "statement": g.statement, "category": "automated_provisional", "explanation": g.rationale, "counterevidence": "Recorded in supporting references.", "uncertainty": g.uncertainty, "validation_status": "Provisional — Not globally validated.", "references": [{"paper_id": r.paper_id, "claim_id": r.claim_id, "evidence_id": r.claim_evidence_id, "role": r.role} for r in g.references]} for g in automated])
+                [{"id": g.id, "statement": g.statement, "category": "automated_provisional", "explanation": g.rationale, "counterevidence": "See counterevidence references." if any(r.role == "counterevidence" for r in g.references) else "No counterevidence was selected.", "uncertainty": g.uncertainty, "validation_status": "Provisional — Not globally validated.", "references": [{"paper_id": r.paper_id, "claim_id": r.claim_id, "evidence_id": r.claim_evidence_id, "role": r.role} for r in g.references]} for g in automated])
 
     @app.post("/api/jobs/{job_id}/gaps/detect", dependencies=[Depends(require_local_request)])
     def detect_gaps(job_id: str, body: GapDetectionRequest, session: Session = Depends(db)):

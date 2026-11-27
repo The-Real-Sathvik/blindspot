@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import re
 import textwrap
+from urllib.parse import quote
 
 import pymupdf as fitz
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.research import (AutomatedProvisionalGap, AutomatedSemanticAssessment, CandidateGap,
-    ExtractedClaim, ModelRun, ResearchJob, ResearchJobPaper)
+    ClaimEvidence, ExtractedClaim, ModelRun, Paper, ResearchJob, ResearchJobPaper)
 from app.schemas.research import AgentRole
 from app.services.human_semantic_review import current_human_review
 from app.services.job_state import project as project_job_state
@@ -17,6 +18,28 @@ from app.services.job_state import project as project_job_state
 
 def _line(value: str | None) -> str:
     return " ".join(str(value or "Not provided.").replace("\r", " ").replace("\n", " ").split())
+
+
+def _doi_url(value: str | None) -> str | None:
+    if not isinstance(value, str) or not re.fullmatch(r"10\.\d{4,9}/[^\s<>]+", value, re.IGNORECASE):
+        return None
+    return "https://doi.org/" + quote(value, safe="/.-_();:")
+
+
+def _reference_report_line(session: Session, reference) -> list[str]:
+    paper = session.get(Paper, reference.paper_id)
+    evidence = session.get(ClaimEvidence, reference.claim_evidence_id)
+    title = _line(paper.title if paper else None)
+    doi_url = _doi_url(paper.doi if paper else None)
+    source = f"{title}" + (f" — {doi_url}" if doi_url else "")
+    lines = [f"- {reference.role}: {source}; claim {reference.claim_id}; evidence {reference.claim_evidence_id}"]
+    if evidence is not None:
+        chunk = evidence.evidence_chunk
+        lines.extend([
+            f"  - PDF page {chunk.page_number}; quote offsets {evidence.quote_start_offset}–{evidence.quote_end_offset}; literal/source-location checks: {evidence.quotation_status.value}/{evidence.source_location_status.value}",
+            f"  - Exact quotation: {_line(evidence.quotation_text)}",
+        ])
+    return lines
 
 
 def build_research_report(session: Session, job_id: str) -> str:
@@ -31,7 +54,9 @@ def build_research_report(session: Session, job_id: str) -> str:
     ).all()
     claims = session.scalars(
         select(ExtractedClaim).join(ModelRun, ExtractedClaim.model_run_id == ModelRun.id)
-        .where(ModelRun.research_job_id == job.id, ModelRun.agent_role == AgentRole.CLAIM_EXTRACTION)
+        .join(ResearchJobPaper, ResearchJobPaper.paper_id == ExtractedClaim.paper_id)
+        .where(ModelRun.research_job_id == job.id, ModelRun.agent_role == AgentRole.CLAIM_EXTRACTION,
+               ResearchJobPaper.research_job_id == job.id, ResearchJobPaper.analysis_selected.is_(True))
         .order_by(ExtractedClaim.paper_id, ExtractedClaim.created_at, ExtractedClaim.id)
     ).all()
     gaps = session.scalars(
@@ -44,7 +69,17 @@ def build_research_report(session: Session, job_id: str) -> str:
         select(AutomatedSemanticAssessment).join(ExtractedClaim).join(ModelRun, ExtractedClaim.model_run_id == ModelRun.id)
         .where(ModelRun.research_job_id == job.id).order_by(AutomatedSemanticAssessment.assessed_at.desc())).all()}
 
-    out = ["# Blindspot research report", "", "## Research topic", "", _line(job.topic), "", "## Executive summary", "", f"{workflow['candidate_count']} candidates were discovered; {len(workflow['analysis_paper_ids'])} papers with verified page-linked evidence were analyzed.", "", "## Analyzed papers", ""]
+    out = ["# Blindspot research report", "", "## Research topic", "", _line(job.topic), "", "## Executive summary", "",
+           f"{workflow['candidate_count']} candidates were discovered; {len(workflow['analysis_paper_ids'])} papers with verified page-linked evidence were analyzed.",
+           f"{workflow['evidence_chunk_count']} saved evidence passages support {workflow['claim_count']} claims; {workflow['assessment_count']} claims have current automated semantic assessments.",
+           f"{workflow['supported_paper_count']} distinct finalized papers have supported automated assessments; {workflow['provisional_gap_count']} provisional gaps were saved.",
+           "", "## Assessment summary", ""]
+    assessment_statuses = workflow["assessment_statuses"]
+    if not workflow["assessment_count"]:
+        out.append("No current automated semantic assessments are saved.")
+    else:
+        out.extend(f"- {status.replace('_', ' ')}: {count}" for status, count in assessment_statuses.items() if count)
+    out.extend(["", "## Analyzed papers", ""])
     included = [link for link in links if link.analysis_selected]
     if not included:
         out.append("No source-verified analysis papers are available; discovery candidates were not treated as analyzed.")
@@ -93,17 +128,19 @@ def build_research_report(session: Session, job_id: str) -> str:
             contradictions.append(claim)
 
     out.extend(["", "## Provisional research gaps", ""])
-    if not gaps:
-        out.append("No candidate gaps are available. " + workflow["stages"]["gaps"]["detail"])
+    if not gaps and not automated_gaps:
+        out.append("No candidate research gaps were saved. " + workflow["stages"]["gaps"]["detail"])
+    elif not gaps:
+        out.append("No human-reviewed gap candidates are saved; automated candidates below remain provisional.")
     for gap in gaps:
         out.extend([f"### {_line(gap.statement)}", f"- Category: {_line(gap.category)}", f"- Validation status: {_line(gap.validation_status)}", f"- Explanation: {_line(gap.explanation)}", f"- Counterevidence: {_line(gap.counterevidence)}", f"- Uncertainty: {_line(gap.uncertainty)}"])
         for reference in sorted(gap.references, key=lambda item: (item.role, item.paper_id, item.claim_id, item.claim_evidence_id)):
-            out.append(f"- {reference.role}: paper {reference.paper_id}; claim {reference.claim_id}; evidence {reference.claim_evidence_id}")
+            out.extend(_reference_report_line(session, reference))
     for gap in automated_gaps:
         out.extend([f"### {_line(gap.statement)}", "- Validation status: Provisional — Not globally validated.",
                     f"- Automated rationale: {_line(gap.rationale)}", f"- Uncertainty: {_line(gap.uncertainty)}"])
         for reference in sorted(gap.references, key=lambda item: (item.role, item.paper_id, item.claim_id)):
-            out.append(f"- {reference.role}: paper {reference.paper_id}; claim {reference.claim_id}; evidence {reference.claim_evidence_id}")
+            out.extend(_reference_report_line(session, reference))
 
     out.extend(["", "## Conflicting evidence", ""])
     if not contradictions:

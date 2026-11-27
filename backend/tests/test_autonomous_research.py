@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+import pytest
+from sqlalchemy import select
 
 from app.db.base import Base
 from app.db.session import create_session_factory, create_sqlite_engine
@@ -31,7 +33,7 @@ def test_autonomous_run_discovers_then_completes_honest_insufficient_evidence_re
     assert 'Saved abstract metadata' in report
     assert 'Preliminary abstract metadata' in report and 'do not enter the full-text claim or gap gates' in report
     assert 'No saved source-grounded claims are available.' in report
-    assert 'No candidate gaps are available.' in report
+    assert 'No candidate research gaps were saved.' in report
 
 
 def test_autonomous_run_reuses_saved_discovery_and_never_retries_permanent_document_failure(session):
@@ -97,6 +99,39 @@ def test_autonomous_claim_handoff_is_capped_and_continues_after_a_failure(sessio
     assert links[1].error_info.startswith('[claim-extraction] failed_inference')
     assert links[2].error_info.startswith('[claim-extraction] completed')
     assert links[3].error_info is None
+
+
+def test_autonomous_resume_preserves_selected_evidence_without_acquisition(session, monkeypatch):
+    job = ResearchJob(topic='Resume saved two-paper evidence')
+    session.add(job)
+    session.flush()
+    selected = []
+    for index in range(2):
+        paper = Paper(title=f'Saved selected paper {index}', authors=[], openalex_id=f'W-saved-selected-{index}', open_access_metadata={})
+        document = SourceDocument(paper=paper, document_type='pdf', status=DocumentStatus.AVAILABLE, local_path='fixture.pdf')
+        chunk = EvidenceChunk(source_document=document, page_number=1, chunk_index=0, start_offset=0, end_offset=24, text='A complete saved finding.')
+        link = ResearchJobPaper(research_job=job, paper=paper, included=False, analysis_selected=True, relevance_score=.9-index/10)
+        session.add_all([link, chunk])
+        selected.append(link)
+    for index in range(3):
+        paper = Paper(title=f'Historical shortlisted paper {index}', authors=[], openalex_id=f'W-historical-{index}', open_access_metadata={'is_oa': True, 'oa_url': 'https://example.invalid/paper.pdf'})
+        session.add(ResearchJobPaper(research_job=job, paper=paper, included=True, analysis_selected=False, relevance_score=.8-index/10))
+    session.flush()
+    session.add(SearchRun(research_job=job, source_name='openalex', query_text='saved evidence', requested_limit=5))
+    session.commit()
+
+    monkeypatch.setattr('app.services.autonomous_research.job_document_state',
+                        lambda _session, _job_id, paper: {'status': 'extracted'} if paper.id in {link.paper_id for link in selected} else {'status': 'available_for_acquisition', 'can_acquire': True, 'can_extract': False})
+    monkeypatch.setattr('app.services.autonomous_research.perform_attempt',
+                        lambda *_args, **_kwargs: pytest.fail('saved selected evidence must not acquire or download historical shortlist PDFs'))
+
+    result = AutonomousResearchOrchestrator(lambda: None).run(session, job)
+
+    assert result.discovery == 'reused'
+    assert result.evidence_ready == 2
+    assert all(link.analysis_selected for link in selected)
+    assert not any(link.analysis_selected for link in session.scalars(
+        select(ResearchJobPaper).where(ResearchJobPaper.research_job_id == job.id, ResearchJobPaper.included.is_(True))).all())
 
 
 def test_autonomous_claim_handoff_uses_only_saved_extracted_alternative_when_shortlist_has_no_evidence(session, monkeypatch):

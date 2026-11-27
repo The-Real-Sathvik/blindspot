@@ -536,10 +536,16 @@ class CloudInferenceRouter:
                 options["thinking_level"] = assignment.thinking_level
                 if assignment.gemini_response_mode != 'native_schema': options['response_mode'] = assignment.gemini_response_mode
                 if assignment.gemini_response_mode == 'plain_text':
-                    # Local import avoids a module cycle; this mode is exclusive
-                    # to the Claim Extraction V3 contract.
-                    if schema.__name__ != 'ClaimExtractionResponseV3':
-                        raise CloudConfigurationError("Gemini plain-text mode is available only for Claim Extraction V3.")
-                    from app.services.claim_extraction_v3 import parse_gemini_plain_text_response
-                    options['plain_text_parser'] = parse_gemini_plain_text_response
+                    # Keep each agent's plain-text contract explicit and local.
+                    if schema.__name__ == 'ClaimExtractionResponseV3':
+                        from app.services.claim_extraction_v3 import parse_gemini_plain_text_response
+                        options['plain_text_parser'] = parse_gemini_plain_text_response
+                    elif schema.__name__ == 'AssessmentResponse':
+                        from app.services.automated_semantic_assessment import parse_gemini_assessment_response
+                        options['plain_text_parser'] = parse_gemini_assessment_response
+                    elif schema.__name__ == 'ProvisionalGapResponse':
+                        from app.services.automated_provisional_gaps import parse_gemini_gap_response
+                        options['plain_text_parser'] = parse_gemini_gap_response
+                    else:
+                        raise CloudConfigurationError("Gemini plain-text mode is unavailable for this response schema.")
             return client.generate_structured(prompt, schema, **options)

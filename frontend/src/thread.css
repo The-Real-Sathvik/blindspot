@@ -5,6 +5,7 @@
 @media(prefers-reduced-motion:reduce){.thread-sidebar{transition:none}html{scroll-behavior:auto}}
 
 .preparation-counts{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0;color:#b5b5b6;font-size:11px}
+.research-metrics{display:flex;flex-wrap:wrap;gap:7px;margin-top:16px}.research-metrics span{border:1px solid #34302c;background:#111214;border-radius:6px;padding:7px 9px;color:#9a9da3;font-size:10px}.research-metrics strong{color:#f5f2ed;font-weight:600}.gap-reference-group{margin-top:20px}.gap-reference-group h4{margin-bottom:5px}
 .preparation-counts span{border:1px solid #34302c;background:#111214;border-radius:6px;padding:7px 9px}
 .preparation-counts strong{color:#f5f2ed;margin-right:3px}
 .preparation-row{display:grid;grid-template-columns:minmax(0,2fr) minmax(110px,1fr) minmax(90px,.8fr) auto;align-items:center;gap:12px;padding:11px 2px;border-top:1px solid #34302c}

@@ -1,6 +1,8 @@
 """Authoritative, deterministic job projection for the autonomous workspace."""
 from __future__ import annotations
 
+from datetime import timezone
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -37,17 +39,26 @@ def project(session: Session, job_id: str) -> dict:
         ResearchJobPaper, ResearchJobPaper.paper_id == ExtractedClaim.paper_id).where(
         ModelRun.research_job_id == job_id, ResearchJobPaper.research_job_id == job_id,
         ResearchJobPaper.analysis_selected.is_(True))).all()
-    assessments = session.scalars(select(AutomatedSemanticAssessment).join(ExtractedClaim).join(ModelRun).where(
-        ModelRun.research_job_id == job_id)).all()
+    assessments = session.scalars(select(AutomatedSemanticAssessment).join(ExtractedClaim).join(ModelRun).join(
+        ResearchJobPaper, ResearchJobPaper.paper_id == ExtractedClaim.paper_id).where(
+        ModelRun.research_job_id == job_id, ResearchJobPaper.research_job_id == job_id,
+        ResearchJobPaper.analysis_selected.is_(True))).all()
     latest = {}
-    for item in sorted(assessments, key=lambda value: value.assessed_at, reverse=True):
+    for item in sorted(assessments, key=lambda value: (
+        value.assessed_at.replace(tzinfo=timezone.utc) if value.assessed_at.tzinfo is None else value.assessed_at
+    ).timestamp(), reverse=True):
         latest.setdefault(item.claim_id, item)
     status_counts = {status.value: 0 for status in SemanticSupportStatus}
     for item in latest.values(): status_counts[item.assessment_status.value] += 1
     supported_papers = {claim.paper_id for claim in claims if latest.get(claim.id) and latest[claim.id].assessment_status is SemanticSupportStatus.SUPPORTED}
     gaps = session.scalar(select(func.count(AutomatedProvisionalGap.id)).where(AutomatedProvisionalGap.research_job_id == job_id)) or 0
     semantic_runs = session.scalar(select(func.count(ModelRun.id)).where(ModelRun.research_job_id == job_id, ModelRun.agent_role == AgentRole.SEMANTIC_REVIEW)) or 0
-    gap_runs = session.scalar(select(func.count(ModelRun.id)).where(ModelRun.research_job_id == job_id, ModelRun.agent_role == AgentRole.GAP_DETECTION)) or 0
+    automated_gap_runs = select(ModelRun).where(
+        ModelRun.research_job_id == job_id,
+        ModelRun.agent_role == AgentRole.GAP_DETECTION,
+        ModelRun.prompt_template_version.like("automated-provisional-gap-%"),
+    ).order_by(ModelRun.created_at.desc())
+    latest_gap_run = session.scalars(automated_gap_runs.limit(1)).first()
     if gaps:
         gap_reason = None
     elif not claims:
@@ -56,10 +67,20 @@ def project(session: Session, job_id: str) -> dict:
         gap_reason = "Automated semantic assessment has not run for the saved findings (legacy run); no gap analysis was attempted."
     elif len(supported_papers) < 2:
         gap_reason = f"Only {len(supported_papers)} finalized paper has supported automated findings; two distinct papers are required."
-    elif not gap_runs:
+    elif latest_gap_run is None:
         gap_reason = "Eligible automated findings exist, but provisional gap detection has not run."
+    elif latest_gap_run.status.value == "failed":
+        category = latest_gap_run.error_category
+        if category == "output_truncated":
+            gap_reason = "Agent 2's response was truncated at its output limit; no provisional gap was saved. No automatic retry was made."
+        elif category in {"invalid_plain_text_contract", "invalid_gap_response"}:
+            gap_reason = "Agent 2 returned a malformed or unauthorized response; no provisional gap was saved. No automatic retry was made."
+        else:
+            gap_reason = f"Agent 2 failed ({category or 'inference_failed'}); no provisional gap was saved. No automatic retry was made."
+    elif latest_gap_run.model_config.get("agent_outcome") == "abstained":
+        gap_reason = "Agent 2 abstained because the saved evidence did not support a defensible provisional gap."
     else:
-        gap_reason = "No provisional gap passed the persisted validation gate."
+        gap_reason = "Agent 2 completed without a saved provisional gap."
     preparation = {"processing": "finished" if candidates else "pending", "coverage": "sufficient" if selected else "unavailable",
                    "detail": f"{candidates} candidates discovered; {len(selected)} verified analysis-ready papers finalized."}
     evidence = {"processing": "finished" if selected else "blocked", "coverage": "sufficient" if evidence_chunks else "unavailable",
@@ -67,7 +88,9 @@ def project(session: Session, job_id: str) -> dict:
     findings = {"processing": "finished" if claims else ("blocked" if not selected else "pending"),
                 "coverage": "sufficient" if claims and latest else ("limited" if claims else "unavailable"),
                 "detail": (f"{len(claims)} source-grounded findings; {len(latest)} automatically assessed." if claims else "No source-grounded findings were saved.")}
-    gaps_state = {"processing": "finished" if gaps or gap_runs else "blocked", "coverage": "sufficient" if gaps else "limited", "detail": gap_reason}
+    gap_processing = "finished" if gaps or (latest_gap_run is not None and latest_gap_run.status.value == "success") else (
+        "failed" if latest_gap_run is not None else "blocked")
+    gaps_state = {"processing": gap_processing, "coverage": "sufficient" if gaps else "limited", "detail": gap_reason}
     return {"analysis_paper_ids": selected, "candidate_count": candidates, "unavailable_candidate_count": candidates-len(selected),
             "evidence_chunk_count": evidence_chunks, "claim_count": len(claims), "assessment_count": len(latest),
             "assessment_statuses": status_counts, "supported_paper_count": len(supported_papers), "provisional_gap_count": gaps,

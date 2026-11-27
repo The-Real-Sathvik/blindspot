@@ -83,3 +83,18 @@ test('authoritative workflow projection keeps a legacy job finished but limited'
   assert.equal(state.states.gaps,'blocked');
   assert.match(state.action.reason,/legacy run/);
 });
+
+test('authoritative Agent 2 failures remain visible and are not represented as a successful no-gap result', () => {
+  const reason="Agent 2's response was truncated at its output limit; no provisional gap was saved. No automatic retry was made.";
+  const workflow={analysis_paper_ids:['a','b'],supported_paper_count:2,provisional_gap_count:0,
+    stages:{preparation:{processing:'finished',coverage:'sufficient',detail:'Two papers finalized.'},
+      evidence:{processing:'finished',coverage:'sufficient',detail:'Saved evidence.'},
+      findings:{processing:'finished',coverage:'sufficient',detail:'Findings assessed.'},
+      gaps:{processing:'failed',coverage:'limited',detail:reason}}};
+  const state=threadState({details:{workflow,searches:[{failed:false}],runs:[{role:'gap_detection',status:'failed',error_category:'output_truncated'}]},
+    papers:[{id:'a',analysis_selected:true},{id:'b',analysis_selected:true}],
+    claims:[{paper_id:'a'},{paper_id:'b'}]});
+  assert.equal(state.states.gaps,'failed');
+  assert.equal(state.active,'gaps');
+  assert.equal(state.action.reason,reason);
+});

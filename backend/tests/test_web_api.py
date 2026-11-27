@@ -1,12 +1,14 @@
 from fastapi.testclient import TestClient
 import pytest
+import pymupdf as fitz
 from types import SimpleNamespace
 
 from app.db.base import Base
 from app.db.session import create_session_factory, create_sqlite_engine
 from app.main import create_app
-from app.models.research import CandidateGap, CandidateGapReference, ClaimEvidence, EvidenceChunk, ExtractedClaim, ModelRun, Paper, ResearchJobPaper, SourceDocument
-from app.schemas.research import AgentRole, CitationCheckStatus, ClaimType, ModelRunStatus
+from app.models.research import (AutomatedSemanticAssessment, CandidateGap, CandidateGapReference,
+    ClaimEvidence, EvidenceChunk, ExtractedClaim, ModelRun, Paper, ResearchJobPaper, SourceDocument)
+from app.schemas.research import AgentRole, CitationCheckStatus, ClaimType, ModelRunStatus, SemanticSupportStatus
 
 
 @pytest.fixture
@@ -81,21 +83,50 @@ def test_claim_and_gap_render_with_separate_verification_and_no_secrets(web):
     client, factory = web
     job_id = client.post('/api/jobs', json={'topic':'Review evidence and gaps'}).json()['id']
     with factory() as session:
-        paper = Paper(title='Source paper', authors=[], open_access_metadata={})
+        paper = Paper(title='Source paper', authors=[], doi='10.1000/test-doi', open_access_metadata={})
         doc = SourceDocument(paper=paper, document_type='pdf')
         chunk = EvidenceChunk(source_document=doc, page_number=4, chunk_index=0, start_offset=0, end_offset=6, text='Source')
         run = ModelRun(research_job_id=job_id, agent_role=AgentRole.CLAIM_EXTRACTION, model_tag='test', model_config={'private_key':'never-expose-this'}, prompt_template_version='test', status=ModelRunStatus.SUCCESS)
+        assessment_run = ModelRun(research_job_id=job_id, agent_role=AgentRole.SEMANTIC_REVIEW, model_tag='test', model_config={}, prompt_template_version='test-assessment', status=ModelRunStatus.SUCCESS)
         claim = ExtractedClaim(paper=paper, model_run=run, claim_type=ClaimType.RESULT, claim_text='A claim')
         evidence = ClaimEvidence(claim=claim, evidence_chunk=chunk, quotation_text='Source', quote_start_offset=0, quote_end_offset=6, quotation_status=CitationCheckStatus.VALID, source_location_status=CitationCheckStatus.VALID)
-        session.add_all([ResearchJobPaper(research_job_id=job_id, paper=paper), evidence]); session.flush()
+        session.add_all([ResearchJobPaper(research_job_id=job_id, paper=paper, analysis_selected=True), evidence, assessment_run]); session.flush()
+        session.add(AutomatedSemanticAssessment(claim=claim, model_run_id=assessment_run.id, evidence_snapshot='snapshot',
+            assessment_status=SemanticSupportStatus.SUPPORTED, rationale='Directly supported.', uncertainty=None,
+            assessment_version='assessment-v2', assessed_at=__import__('datetime').datetime.now(__import__('datetime').timezone.utc)))
         gap = CandidateGap(research_job_id=job_id, model_run_id=run.id, statement='A possible gap', category='missing_evaluation', explanation='Limited records', counterevidence='Unknown', uncertainty='Not reviewed', validation_status='not_yet_validated')
         session.add(CandidateGapReference(gap=gap, paper_id=paper.id, claim_id=claim.id, claim_evidence_id=evidence.id, role='supporting')); session.commit()
     response = client.get(f'/api/jobs/{job_id}/claims')
     item = response.json()[0]
     assert item['semantic_status'] == 'unverified' and item['evidence'][0]['quotation_status'] == 'valid' and item['evidence'][0]['page'] == 4
+    assert item['automated_assessment_status'] == 'supported'
+    assert item['automated_assessment_rationale'] == 'Directly supported.'
     assert 'never-expose-this' not in response.text
     gap = client.get(f'/api/jobs/{job_id}/gaps').json()[0]
     assert gap['validation_status'] == 'not_yet_validated' and gap['references'][0]['role'] == 'supporting'
+    pdf_response = client.get(f'/api/jobs/{job_id}/report.pdf')
+    assert pdf_response.status_code == 200 and pdf_response.content.startswith(b'%PDF-')
+    pdf = fitz.open(stream=pdf_response.content, filetype='pdf')
+    report_text = '\n'.join(page.get_text() for page in pdf)
+    pdf.close()
+    assert 'Source paper' in report_text and 'https://doi.org/10.1000/test-doi' in report_text
+    assert 'Source' in report_text and 'supported' in report_text and 'A possible gap' in report_text
+
+
+def test_autonomous_run_rejects_an_exhausted_persisted_cloud_budget(web):
+    client, factory = web
+    job_id = client.post('/api/jobs', json={'topic': 'Persisted cloud budget'}).json()['id']
+    with factory() as session:
+        session.add_all([
+            ModelRun(research_job_id=job_id, agent_role=AgentRole.CLAIM_EXTRACTION, model_tag='gemini-3.5-flash-lite',
+                     model_config={'provider': 'gemini', 'output_tokens': 512}, prompt_template_version=f'test-{index}',
+                     status=ModelRunStatus.SUCCESS)
+            for index in range(8)
+        ])
+        session.commit()
+    response = client.post(f'/api/jobs/{job_id}/run', json={'cloud_consent': True})
+    assert response.status_code == 409
+    assert 'exhausted its shared eight-request' in response.json()['detail']
 
 
 def test_partial_report_is_downloadable_and_never_invents_claims(web):
@@ -106,4 +137,4 @@ def test_partial_report_is_downloadable_and_never_invents_claims(web):
     assert response.headers['content-type'].startswith('text/markdown')
     assert 'Honest partial report' in response.text
     assert 'No saved source-grounded claims are available.' in response.text
-    assert 'No candidate gaps are available.' in response.text
+    assert 'No candidate research gaps were saved.' in response.text

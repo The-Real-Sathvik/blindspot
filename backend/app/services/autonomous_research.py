@@ -75,6 +75,42 @@ class AutonomousResearchOrchestrator:
         ).order_by(ResearchJobPaper.relevance_score.desc(), ResearchJobPaper.paper_id).limit(self.shortlist_limit)).all()
         processed = evidence_ready = failed = 0
 
+        # Resume existing finalized evidence before touching the historical
+        # shortlist. This prevents a saved source-verified analysis set from
+        # triggering acquisition/download operations for unrelated candidates.
+        persisted_selected = session.scalars(select(ResearchJobPaper).where(
+            ResearchJobPaper.research_job_id == job.id,
+            ResearchJobPaper.analysis_selected.is_(True),
+        )).all()
+        persisted_extracted = []
+        for link in persisted_selected:
+            if job_document_state(session, job.id, link.paper)["status"] == "extracted":
+                persisted_extracted.append(link)
+        if len(persisted_extracted) >= 2:
+            candidate_links = persisted_extracted
+            evidence_ready = len(candidate_links)
+        else:
+            candidate_links = None
+
+        if candidate_links is not None:
+            for link in session.scalars(select(ResearchJobPaper).where(ResearchJobPaper.research_job_id == job.id)).all():
+                link.analysis_selected = False
+            final_links = []
+            seen_papers = set()
+            for link in sorted(candidate_links, key=lambda item: (-(item.relevance_score or 0), item.paper_id)):
+                if link.paper_id not in seen_papers:
+                    link.analysis_selected = True
+                    link.status = JobPaperStatus.ANALYZED
+                    final_links.append(link)
+                    seen_papers.add(link.paper_id)
+                if len(final_links) >= self.shortlist_limit:
+                    break
+            session.commit()
+            evidence_ready = len(final_links)
+            claim_links = final_links
+        else:
+            claim_links = None
+
         def prepare(link):
             """Use one persisted source checkpoint; never retry a failed automatic attempt."""
             nonlocal processed, evidence_ready, failed
@@ -97,55 +133,53 @@ class AutonomousResearchOrchestrator:
             elif state["status"] == "failed": failed += 1
             return state
 
-        for link in links:
-            prepare(link)
+        if candidate_links is None:
+            for link in links:
+                prepare(link)
 
         abstract_available = sum(bool(link.paper.abstract and link.paper.abstract.strip()) for link in links)
-        # The visible shortlist remains unchanged. If it yielded no usable
-        # evidence, recover through a bounded set of job-associated alternatives.
-        # Source readiness ranks ahead of relevance only after the shortlist has
-        # proved unusable: saved evidence, saved PDF, then approved PDF URL.
-        candidate_links = list(links)
-        # Recovery is also used when just one shortlist paper is usable: Agent 2
-        # needs a genuine cross-paper set, not metadata-only shortlist entries.
-        if evidence_ready < min(2, self.shortlist_limit):
-            alternatives = session.scalars(select(ResearchJobPaper).where(
-                ResearchJobPaper.research_job_id == job.id, ResearchJobPaper.included.is_not(True)
-            ).order_by(ResearchJobPaper.relevance_score.desc(), ResearchJobPaper.paper_id)).all()
+        if candidate_links is None:
+            # The visible shortlist remains unchanged. If it yielded no usable
+            # evidence, recover through a bounded set of job-associated alternatives.
+            candidate_links = list(links)
+            if evidence_ready < min(2, self.shortlist_limit):
+                alternatives = session.scalars(select(ResearchJobPaper).where(
+                    ResearchJobPaper.research_job_id == job.id, ResearchJobPaper.included.is_not(True)
+                ).order_by(ResearchJobPaper.relevance_score.desc(), ResearchJobPaper.paper_id)).all()
 
-            def readiness(link):
+                def readiness(link):
+                    state = job_document_state(session, job.id, link.paper)
+                    if state["status"] == "extracted": return 0
+                    if state.get("can_extract"): return 1
+                    if state.get("can_acquire"): return 2
+                    return 3
+
+                recovery = sorted(alternatives, key=lambda link: (readiness(link), -(link.relevance_score or 0), link.paper_id))
+                for alternative in recovery[:self.max_recovery_papers]:
+                    state = prepare(alternative)
+                    if state["status"] == "extracted":
+                        candidate_links.append(alternative)
+                        if evidence_ready >= self.shortlist_limit:
+                            break
+
+            # The durable analysis set is the only source for Agent 1/2 and reports.
+            # Historical shortlist membership is deliberately left untouched.
+            for link in session.scalars(select(ResearchJobPaper).where(ResearchJobPaper.research_job_id == job.id)).all():
+                link.analysis_selected = False
+            final_links = []
+            seen_papers = set()
+            for link in sorted(candidate_links, key=lambda item: (-(item.relevance_score or 0), item.paper_id)):
                 state = job_document_state(session, job.id, link.paper)
-                if state["status"] == "extracted": return 0
-                if state.get("can_extract"): return 1
-                if state.get("can_acquire"): return 2
-                return 3
-
-            recovery = sorted(alternatives, key=lambda link: (readiness(link), -(link.relevance_score or 0), link.paper_id))
-            for alternative in recovery[:self.max_recovery_papers]:
-                state = prepare(alternative)
-                if state["status"] == "extracted":
-                    candidate_links.append(alternative)
-                    if evidence_ready >= self.shortlist_limit:
-                        break
-
-        # The durable analysis set is the only source for Agent 1/2 and reports.
-        # Historical shortlist membership is deliberately left untouched.
-        for link in session.scalars(select(ResearchJobPaper).where(ResearchJobPaper.research_job_id == job.id)).all():
-            link.analysis_selected = False
-        final_links = []
-        seen_papers = set()
-        for link in sorted(candidate_links, key=lambda item: (-(item.relevance_score or 0), item.paper_id)):
-            state = job_document_state(session, job.id, link.paper)
-            if link.paper_id not in seen_papers and state["status"] == "extracted":
-                link.analysis_selected = True
-                link.status = JobPaperStatus.ANALYZED
-                final_links.append(link)
-                seen_papers.add(link.paper_id)
-            if len(final_links) >= self.shortlist_limit:
-                break
-        session.commit()
-        evidence_ready = len(final_links)
-        claim_links = final_links
+                if link.paper_id not in seen_papers and state["status"] == "extracted":
+                    link.analysis_selected = True
+                    link.status = JobPaperStatus.ANALYZED
+                    final_links.append(link)
+                    seen_papers.add(link.paper_id)
+                if len(final_links) >= self.shortlist_limit:
+                    break
+            session.commit()
+            evidence_ready = len(final_links)
+            claim_links = final_links
 
         claim_attempted = claim_accepted = claim_abstained = claim_failed = 0
         if self.claim_runner is not None and self.claim_assignment is not None:
